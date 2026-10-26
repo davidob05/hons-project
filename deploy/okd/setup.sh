@@ -77,8 +77,8 @@ cat > "$DATA/env.sh" <<ENV
 export DATA="$DATA"
 export HOME="$HOME"
 export PATH="$TOOLS/bin:$DATA/venv/bin:\$PATH"
-[ -d "$TOOLS/jdk" ] && export JAVA_HOME="$TOOLS/jdk" PATH="$TOOLS/jdk/bin:\$PATH"
+if [ -d "$TOOLS/jdk" ]; then export JAVA_HOME="$TOOLS/jdk" PATH="$TOOLS/jdk/bin:\$PATH"; fi
 ENV
 echo
-echo "Done. In any new shell:  source $DATA/env.sh"
+echo "Done. In any new shell:  . $DATA/env.sh"
 echo "Then run an experiment:  bash $REPO/deploy/okd/run.sh"

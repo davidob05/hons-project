@@ -9,7 +9,7 @@
 set -euo pipefail
 
 DATA="${DATA:-/mnt/primary/cdet}"
-[ -f "$DATA/env.sh" ] && source "$DATA/env.sh"
+[ -f "$DATA/env.sh" ] && . "$DATA/env.sh" || true
 REPO="$DATA/hons-project"
 PORT="${PORT:-8000}"
 
