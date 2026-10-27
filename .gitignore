@@ -8,3 +8,8 @@ settings.toml
 logs/
 sdks/
 topics.two-keepers
+*.egg-info/
+runs/
+*.jsonl
+!data/*.jsonl
+dev_dated.json
