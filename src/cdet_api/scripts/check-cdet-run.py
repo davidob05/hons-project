@@ -16,8 +16,9 @@ class Errlog():
         ...
     If not, be sure to call .close() when done.
     '''
-    def __init__(self, runfile, max_errors=50):
-        self.filename = runfile + '.errlog'
+    def __init__(self, runfile, max_errors=50, logdir='logs'):
+        Path(logdir).mkdir(parents=True, exist_ok=True)
+        self.filename = str(Path(logdir) / (Path(runfile).name + '.errlog'))
         self.fp = open(self.filename, 'w')
         self.error_count = 0
         self.max_errors = max_errors
