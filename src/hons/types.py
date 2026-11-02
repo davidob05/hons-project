@@ -1,5 +1,6 @@
 import datetime
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
@@ -32,6 +33,8 @@ class DayBatch:
             if doc.day != self.day:
                 raise ValueError(f'document {doc.id} is from {doc.day}, not {self.day}')
 
+    def __iter__(self) -> Iterator[DocumentSchema]:
+        return iter(self.documents)
 
 @dataclass(frozen=True)
 class Fragment:
