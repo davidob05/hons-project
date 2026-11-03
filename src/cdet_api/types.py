@@ -3,7 +3,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 
 type DayString = Annotated[str, StringConstraints(pattern=r'^\d{4}-\d{2}-\d{2}$', min_length=10, max_length=10)]
 class DocumentSchema(BaseModel):
-    _id: str
+    id: str
     text: str
     url: str
     date: str
@@ -12,10 +12,6 @@ class DocumentSchema(BaseModel):
     # This configuration acts as the utility to map Peewee ORM models to Pydantic definitions
     # It tells Pydantic to read data as attributes (obj.id) rather than just dict lookups (obj['id'])
     model_config = ConfigDict(from_attributes=True)
-
-    @property
-    def id(self):
-        return self._id
 
 # A search hit
 class Hit(BaseModel):
