@@ -153,6 +153,7 @@ class State:
     memory: dict[QuestionKey, list[MemoryEntry]] = field(default_factory=dict)          # Stage 4
     score_history: dict[QuestionKey, list[ScoreRecord]] = field(default_factory=dict)   # Stage 2 windows
     clusters: dict[str, list[Cluster]] = field(default_factory=dict)                    # Stage 6, by tid
+    questions: dict[QuestionKey, QuestionVersion] = field(default_factory=dict)         # new versions, which override version 0
 
     def remember(self, key: QuestionKey, entry: MemoryEntry) -> None:
         self.memory.setdefault(key, []).append(entry)
