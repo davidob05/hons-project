@@ -2,11 +2,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+from cdet_api.client import CDetClient
 from cdet_api.types import RunMetadata
 
 from hons.config import Config
-from hons.io.sink import ReplaySink, Sink
-from hons.io.source import DaySource, ReplaySource
+from hons.io.sink import LiveSink, ReplaySink, Sink
+from hons.io.source import DaySource, LiveSource, ReplaySource
 from hons.registry import build_stages
 from hons.stages.s6_propose import add_proposals
 from hons.types import Candidates, DayBatch, DayOutput, QuestionKey, QuestionVersion, State
@@ -39,23 +40,24 @@ def run_day(stages: dict[str, Any], batch: DayBatch, base: dict[QuestionKey, Que
     return DayOutput(per_topic=results), candidates, seeded, proposed
 
 
-def build_source(config: Config) -> DaySource:
+def build_io(config: Config, run_dir: Path, topics: list[dict]) -> tuple[DaySource, Sink]:
+    metadata = RunMetadata(
+        runtag=config.run.runtag,
+        description=config.run.description,
+        run_type='automatic',
+        models=list(config.models),
+        extern='No external data used.',
+    )
+    tids = [topic['tid'] for topic in topics]
     if config.run.mode == 'replay':
-        return ReplaySource(config.run.db, config.run.days)
-    raise NotImplementedError('live mode is not wired yet: it needs an api key and a token from start_run')
+        return ReplaySource(config.run.db, config.run.days), ReplaySink(run_dir / 'run.json', metadata, tids)
 
-
-def build_sink(config: Config, run_dir: Path, topics: list[dict]) -> Sink:
-    if config.run.mode == 'replay':
-        metadata = RunMetadata(
-            runtag=config.run.runtag,
-            description=config.run.description,
-            run_type='automatic',
-            models=list(config.models),
-            extern='No external data used.',
-        )
-        return ReplaySink(run_dir / 'run.json', metadata, [topic['tid'] for topic in topics])
-    raise NotImplementedError('live mode is not wired yet: it needs an api key and a token from start_run')
+    # Live: the server hands out days one at a time, and the run file is written by finalize_run
+    client = CDetClient(base_url=config.run.base_url)
+    token = client.start_run(config.run.api_key, metadata)
+    if token is None:
+        raise RuntimeError(f'start_run failed against {config.run.base_url}; is the server running?')
+    return LiveSource(client, token), LiveSink(client, token, tids, str(run_dir / 'run.json'))
 
 
 def run(config: Config):
@@ -79,11 +81,12 @@ def run(config: Config):
     # build each stage at the start, before running anything, so that bad inputs fail early
     stages = build_stages(config)
 
-    source = build_source(config)
-    sink = build_sink(config, run_dir, topics)
+    source, sink = build_io(config, run_dir, topics)
     state = State()
     try:
         for batch in source:
+            if config.run.days is not None and batch.sequence_number >= config.run.days[1]:
+                break
             output, candidates, seeded, proposed = run_day(stages, batch, base, examples, state, config.run.runtag)
             sink.write(batch.day, output)
             # update state after writing output, so that output reflects what was used in the day, not what changes after the day
