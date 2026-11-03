@@ -26,6 +26,7 @@ class RunConfig:
     seed: int = 0
     db: Path = Path('docs.db')              # replay source
     base_url: str = 'http://127.0.0.1:8000' # live server
+    api_key: str = 'abc123'                 # the local server's placeholder key
 
     def __post_init__(self):
         if not RUNTAG_PATTERN.match(self.runtag):
