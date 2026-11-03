@@ -111,3 +111,14 @@ class Candidates:
 class DayOutput:
     # topic id -> the toolkit's own type. The only place toolkit result types appear here
     per_topic: dict[str, DayResults] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Proposal:
+    tid: str
+    question_text: str
+
+
+@dataclass
+class Proposals:
+    proposals: list[Proposal] = field(default_factory=list)

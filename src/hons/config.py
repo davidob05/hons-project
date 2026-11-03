@@ -9,10 +9,10 @@ from typing import Any, Literal
 # The server's rule for RunMetadata.runtag, checked here so a bad tag fails before day 0 rather than at start_run
 RUNTAG_PATTERN = re.compile(r'^[a-zA-Z0-9_-][a-zA-Z0-9_.-]{1,19}$')
 
-# Stages 2, 3 and 5 have no `off`, so a run must name an implementation for each. Stage 6 has no options
-REQUIRED_STAGES = ('s2_score', 's3_tail', 's5_gate')
-# A missing section means the stage's `off` implementation
-OPTIONAL_STAGES = ('s0_fragment', 's1_questions', 's4_novelty', 's6_propose', 's7_state')
+# Stages 2 and 5 have no `off`, so a run must name an implementation for each. Stage 6 has no options
+REQUIRED_STAGES = ('s2_score', 's5_gate')
+# A missing section means the stage's `off` implementation. For Stage 3 that is no candidates
+OPTIONAL_STAGES = ('s0_fragment', 's1_questions', 's3_tail', 's4_novelty', 's6_propose', 's7_state')
 
 
 @dataclass(frozen=True)
