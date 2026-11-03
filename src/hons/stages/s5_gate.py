@@ -1,18 +1,18 @@
 from cdet_api.types import DayResults, Hit, QuestionResults
 
 from hons.registry import register
-from hons.types import QuestionKey, DocScore
+from hons.types import Candidates
 
 STAGE = 's5_gate'
 
 
-def to_day_results(selected: dict[QuestionKey,dict[str,DocScore]]) -> dict[str,DayResults]:
+def to_day_results(candidates: Candidates) -> dict[str,DayResults]:
     by_topic: dict[str, list[tuple[str, list[Hit]]]] = {}
-    for (tid, qid), docs in selected.items():
-        if not docs:
+    for (tid, qid), question_candidates in candidates.per_question.items():
+        if not question_candidates:
             continue
-        sorted_docs = sorted(docs.items(), key=lambda item: item[1].score, reverse=True)
-        hits = [Hit(doc_id=doc_id, score=doc.score) for doc_id, doc in sorted_docs]
+        sorted_docs = sorted(question_candidates, key=lambda candidate: candidate.score.score*candidate.weight, reverse=True)
+        hits = [Hit(doc_id=candidate.doc_id, score=candidate.score.score*candidate.weight) for candidate in sorted_docs]
         by_topic.setdefault(tid, []).append((qid, hits))
 
     output = {}
@@ -27,5 +27,5 @@ def to_day_results(selected: dict[QuestionKey,dict[str,DocScore]]) -> dict[str,D
 
 @register(STAGE,'all_candidates')
 class AllCandidates:
-    def run(self, questions: dict[QuestionKey,dict[str,DocScore]]) -> dict[str,DayResults]:
-        return to_day_results(questions)
+    def run(self, candidates: Candidates) -> dict[str,DayResults]:
+        return to_day_results(candidates)

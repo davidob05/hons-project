@@ -87,10 +87,10 @@ class Scores:
     per_question: dict[QuestionKey, dict[str, DocScore]] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
+@dataclass
 class Candidate:
     doc_id: str
-    score: float
+    score: DocScore
     excess: float | None = None     # amount over the Stage 3 bar
     pvalue: float | None = None
     novelty: float | None = None
@@ -100,6 +100,11 @@ class Candidate:
 @dataclass
 class Candidates:
     per_question: dict[QuestionKey, list[Candidate]] = field(default_factory=dict)
+    def add_candidate(self, candidate: Candidate, key: QuestionKey) -> None:
+        self.per_question.setdefault(key, []).append(candidate)
+
+    def __iter__(self):
+        return iter(self.per_question)
 
 
 @dataclass
