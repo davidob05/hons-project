@@ -122,3 +122,49 @@ class Proposal:
 @dataclass
 class Proposals:
     proposals: list[Proposal] = field(default_factory=list)
+
+
+class MemoryEntry(NamedTuple):
+    # A fragment a question has already seen. Text is not kept; embeddings come from the cache by hash
+    sequence_number: int
+    doc_id: str
+    fragment_hash: str
+
+
+class ScoreRecord(NamedTuple):
+    sequence_number: int
+    score: float
+
+
+@dataclass
+class Cluster:
+    centroid: list[float]
+    doc_ids: list[str] = field(default_factory=list)
+    first_seen: int = 0
+    last_seen: int = 0
+    proposed: bool = False
+
+
+@dataclass
+class State:
+    # Everything carried between days. Stages only read it, and Stage 7 writes the day's entries
+    # after the sink has written, so during a day this holds earlier days only. An empty State is
+    # the stateless `off` case
+    memory: dict[QuestionKey, list[MemoryEntry]] = field(default_factory=dict)          # Stage 4
+    score_history: dict[QuestionKey, list[ScoreRecord]] = field(default_factory=dict)   # Stage 2 windows
+    clusters: dict[str, list[Cluster]] = field(default_factory=dict)                    # Stage 6, by tid
+
+    def remember(self, key: QuestionKey, entry: MemoryEntry) -> None:
+        self.memory.setdefault(key, []).append(entry)
+
+    def record_score(self, key: QuestionKey, record: ScoreRecord) -> None:
+        self.score_history.setdefault(key, []).append(record)
+
+    def prune(self, current: int, window_days: int) -> None:
+        oldest = current - window_days
+        for key, entries in self.memory.items():
+            self.memory[key] = [e for e in entries if e.sequence_number > oldest]
+        for key, records in self.score_history.items():
+            self.score_history[key] = [r for r in records if r.sequence_number > oldest]
+        for tid, found in self.clusters.items():
+            self.clusters[tid] = [c for c in found if c.last_seen > oldest]
