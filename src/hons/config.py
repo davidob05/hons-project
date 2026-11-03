@@ -12,7 +12,7 @@ RUNTAG_PATTERN = re.compile(r'^[a-zA-Z0-9_-][a-zA-Z0-9_.-]{1,19}$')
 # Stages 2, 3 and 5 have no `off`, so a run must name an implementation for each. Stage 6 has no options
 REQUIRED_STAGES = ('s2_score', 's3_tail', 's5_gate')
 # A missing section means the stage's `off` implementation
-OPTIONAL_STAGES = ('s0_fragment', 's1_questions', 's4_novelty', 's7_propose', 's8_state')
+OPTIONAL_STAGES = ('s0_fragment', 's1_questions', 's4_novelty', 's6_propose', 's7_state')
 
 
 @dataclass(frozen=True)

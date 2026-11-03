@@ -5,8 +5,8 @@ STAGE = 's3_tail'
 
 @register(STAGE,'off')
 class ReturnNone:
-    def run(self,scores: Scores) -> dict[QuestionKey,dict]:
-        return { qid : {} for qid in scores.per_question.keys() }
+    def run(self,scores: Scores) -> Candidates:
+        return Candidates()
 
 
 @register(STAGE,'top_1')
