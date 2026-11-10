@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 
 from hons.config import load_config
-from hons.metrics.recall import evaluate, report
+from hons.metrics.evaluation import evaluate, report
 from hons.runner import run_dir_for
 
 
