@@ -1,0 +1,18 @@
+# P3 sanity check: should reproduce my-run.json (example_client.py: BM25 over each day's
+# documents, top 20 per question). Every stage it doesn't use is off.
+
+[run]
+runtag = "toolkit-baseline"
+description = "BM25 over each day's documents with the question as query, top 20 returned."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s2_score]
+impl = "bm25_day"
+
+[s3_tail]
+impl = "topk"
+k = 20              # passed to the topk implementation's constructor
+
+[s5_gate]
+impl = "all_candidates"

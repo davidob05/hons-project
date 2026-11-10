@@ -1,0 +1,18 @@
+# P0 harness check: Stage 3 returns no candidates, so every day and topic is written with empty
+# rankings. Done when check-cdet-run.py accepts the output in replay and live mode.
+# Sections not listed here (s0, s1, s4, s7, s8) run their `off` implementation, as does s3 below.
+
+[run]
+runtag = "empty"
+description = "Empty run: no documents returned on any day."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s2_score]
+impl = "bm25_day"
+
+[s3_tail]
+enabled = false
+
+[s5_gate]
+impl = "all_candidates"
