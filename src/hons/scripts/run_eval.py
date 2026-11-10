@@ -1,21 +1,25 @@
 import argparse
 import subprocess
 import sys
-from pathlib import Path
+
+from hons.scripts.args import add_config_arguments
 
 
 def main():
     parser = argparse.ArgumentParser(description='Run the pipeline, then evaluate the finished run')
-    parser.add_argument('config', type=Path)
-    parser.add_argument('--expected', type=Path, help='passed to the evaluation; its default is used if omitted')
+    add_config_arguments(parser)
+    parser.add_argument('--expected', help='passed to the evaluation; its default is used if omitted')
     args = parser.parse_args()
 
-    # separate processes, so the evaluation reads only what the run wrote to disk, exactly as a later standalone evaluation would
-    subprocess.run([sys.executable, '-m', 'hons.scripts.run', str(args.config)], check=True)
-    command = [sys.executable, '-m', 'hons.scripts.evaluate', str(args.config)]
+    shared = [str(args.config)]
+    if args.days is not None:
+        shared += ['--days', *map(str, args.days)]
+
+    subprocess.run([sys.executable, '-m', 'hons.scripts.run', *shared], check=True)
+    evaluation = [sys.executable, '-m', 'hons.scripts.evaluate', *shared]
     if args.expected is not None:
-        command += ['--expected', str(args.expected)]
-    subprocess.run(command, check=True)
+        evaluation += ['--expected', args.expected]
+    subprocess.run(evaluation, check=True)
 
 
 if __name__ == '__main__':

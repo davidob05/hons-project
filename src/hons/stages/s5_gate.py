@@ -29,3 +29,15 @@ def to_day_results(candidates: Candidates) -> dict[str,DayResults]:
 class AllCandidates:
     def run(self, candidates: Candidates) -> dict[str,DayResults]:
         return to_day_results(candidates)
+
+
+@register(STAGE,'toolkit')
+class ToolkitOrder:
+    def run(self, candidates: Candidates) -> dict[str,DayResults]:
+        return {
+            tid: DayResults(results=[
+                QuestionResults(qid=question.qid, question_rank=1, question_text=None, doc_ranking=question.doc_ranking)
+                for question in sorted(day.results, key=lambda question: question.qid)
+            ])
+            for tid, day in to_day_results(candidates).items()
+        }

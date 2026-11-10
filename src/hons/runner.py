@@ -35,6 +35,10 @@ def run_day(stages: dict[str, Any], batch: DayBatch, base: dict[QuestionKey, Que
     candidates = stages['s3_tail'].run(scores)
     candidates = stages['s4_novelty'].run(candidates, state, fragments)
     results = stages['s5_gate'].run(candidates)
+    for tid, day in results.items():
+        for question in day.results:
+            if question.question_text is None:
+                question.question_text = questions[QuestionKey(tid, question.qid)].text
     proposals = stages['s6_propose'].run(results, candidates)
     results, proposed = add_proposals(results, proposals, runtag, batch.sequence_number)
     return DayOutput(per_topic=results), candidates, seeded, proposed

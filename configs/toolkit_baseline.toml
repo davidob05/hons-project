@@ -12,7 +12,8 @@ impl = "bm25_day"
 
 [s3_tail]
 impl = "topk"
-k = 20              # passed to the topk implementation's constructor
+k = 20
+min_score = 5
 
 [s5_gate]
-impl = "all_candidates"
+impl = "toolkit"
