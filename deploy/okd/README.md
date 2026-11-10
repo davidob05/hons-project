@@ -44,7 +44,7 @@ bash /mnt/primary/cdet/hons-project/deploy/okd/setup.sh && . /mnt/primary/cdet/e
 ```bash
 cd /mnt/primary/cdet/hons-project
 bash deploy/okd/run.sh                                   # smoke test: BM25 example client, 3 days
-bash deploy/okd/run.sh -- python -m hons.run configs/x.toml    # your own pipeline (once it exists)
+bash deploy/okd/run.sh -- python -m hons.scripts.run_eval configs/x.toml    # hons pipeline against the server
 ```
 
 `run.sh` starts the server on `127.0.0.1:8000`, runs the command after `--`, copies the

@@ -2,7 +2,7 @@
 # Start the CDET server, run a client against it, save the output, stop the server.
 #
 #   bash deploy/okd/run.sh                              # example BM25 client, dev topics, 3 days (smoke test)
-#   bash deploy/okd/run.sh -- python -m hons.run configs/x.toml   # any client command after '--'
+#   bash deploy/okd/run.sh -- python -m hons.scripts.run_eval configs/x.toml   # any client command after '--'
 #
 # Survives a dropped terminal:  nohup bash deploy/okd/run.sh -- <cmd> > $DATA/last.log 2>&1 &
 # Output lands in $DATA/runs/<timestamp>/ (client's cwd, so finalize_run's <runtag>.json is saved there).

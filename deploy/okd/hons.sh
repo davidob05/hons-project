@@ -36,5 +36,5 @@ if grep -Eq '^mode *= *"live"' "$CONFIG"; then
 fi
 
 echo "config: $CONFIG   log: $LOG"
-python -m hons.cli "$CONFIG" 2>&1 | tee "$LOG"
+python -m hons.scripts.run_eval "$CONFIG" 2>&1 | tee "$LOG"
 echo "done -> $DATA/runs/   (the run directory is <runtag>-<digest>)"

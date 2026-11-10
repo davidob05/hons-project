@@ -60,9 +60,12 @@ def build_io(config: Config, run_dir: Path, topics: list[dict]) -> tuple[DaySour
     return LiveSource(client, token), LiveSink(client, token, tids, str(run_dir / 'run.json'))
 
 
-def run(config: Config):
+def run_dir_for(config: Config) -> Path:
+    return Path('runs') / f'{config.run.runtag}-{config.digest()}'
 
-    run_dir = Path('runs') / f'{config.run.runtag}-{config.digest()}'
+
+def run(config: Config) -> Path:
+    run_dir = run_dir_for(config)
     run_dir.mkdir(parents=True, exist_ok=True)
     with open(run_dir / 'config.json','w') as f:
         json.dump(config.raw,f,indent=2,default=str)
@@ -93,3 +96,4 @@ def run(config: Config):
             state = stages['s7_state'].run(state, candidates, seeded, proposed)
     finally:
         sink.close()
+    return run_dir
