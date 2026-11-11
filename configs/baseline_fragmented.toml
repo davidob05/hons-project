@@ -1,0 +1,21 @@
+# Toolkit baseline run with fragmented documents. 
+
+[run]
+runtag = "baseline_fragmented"
+description = "BM25 over each day's documents with the question as query, top 20 returned. Documents are fragmented, fragments are run through BM25"
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "lines"
+
+[s2_score]
+impl = "bm25_day"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = 5
+
+[s5_gate]
+impl = "toolkit"
