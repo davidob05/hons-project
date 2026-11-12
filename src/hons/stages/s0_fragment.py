@@ -1,7 +1,10 @@
+import re
+
 from hons.registry import register
 from hons.types import DayBatch, DocInfo, Fragment, Fragments
 
 STAGE = 's0_fragment'
+ASCII_TERM = re.compile(r'[A-Za-z0-9]')
 
 
 @register(STAGE, 'lines')
@@ -10,7 +13,7 @@ class LineFragmenter:
     def run(self, batch: DayBatch) -> Fragments:
         fragments = Fragments()
         for document in batch:
-            lines = [line.strip() for line in document.text.split('\n') if any(c.isalnum() for c in line)]
+            lines = [line.strip() for line in document.text.split('\n') if ASCII_TERM.search(line)]
             fragments.fragments[document.id] = {i: Fragment(line) for i, line in enumerate(lines)}
             fragments.docs[document.id] = DocInfo()
         return fragments
