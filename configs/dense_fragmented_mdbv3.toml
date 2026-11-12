@@ -10,6 +10,7 @@ impl = "lines"
 [s2_score]
 impl = "dense"
 model = "sentence-transformers/msmarco-distilbert-base-v3"
+device = "cuda"
 
 [s3_tail]
 impl = "topk"
