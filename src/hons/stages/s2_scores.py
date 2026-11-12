@@ -78,3 +78,47 @@ class BM25Day:
                 per_doc[doc_id] = DocScore(score=float(row.score), best_fragment=fragment_index)
         return scores
 
+@register(STAGE,'dense')
+class DenseEncoder:
+    # Alternative to the baseline BM25, a dense encoder uses a neural encoder to turn the question and each fragment 
+    # into vectors, a fragment's score would then be the cosine similarity between this vector and the question's vector
+    def __init__(self, model: str = 'sentence-transformers/msmarco-distilbert-base-v3',
+                 device: str | None = None, batch_size: int = 64):
+        from sentence_transformers import SentenceTransformer
+
+        self.model_name = model
+        self.batch_size = batch_size
+        self.model = SentenceTransformer(model, device=device)
+
+    def run(self, fragments: Fragments, questions: dict[QuestionKey, QuestionVersion]) -> Scores:
+        scores = Scores(per_question={key: {} for key in questions})
+
+        keys: list[tuple[str, int]] = []
+        texts: list[str] = []
+        for doc_id, index, fragment in fragments:
+            texts.append(fragment.text)
+            keys.append((doc_id, index))
+        if not texts or not questions:
+            return scores
+
+        asked = list(questions)
+        fragment_vectors = self.model.encode(
+            texts, batch_size=self.batch_size, convert_to_numpy=True, normalize_embeddings=True)
+        question_vectors = self.model.encode(
+            [questions[key].text for key in asked], batch_size=self.batch_size,
+            convert_to_numpy=True, normalize_embeddings=True)
+        similarity = question_vectors @ fragment_vectors.T
+
+        starts = [0]
+        for i in range(1, len(keys)):
+            if keys[i][0] != keys[i - 1][0]:
+                starts.append(i)
+        starts.append(len(keys))
+
+        for q, key in enumerate(asked):
+            per_doc = scores.per_question[key]
+            row = similarity[q]
+            for lo, hi in zip(starts, starts[1:]):
+                best = lo + int(row[lo:hi].argmax())
+                per_doc[keys[best][0]] = DocScore(score=float(row[best]), best_fragment=keys[best][1])
+        return scores
