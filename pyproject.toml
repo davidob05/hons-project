@@ -25,9 +25,13 @@ dependencies = [
     "tqdm>=4.67.3",
     "peewee>=4.0.4",
     "python-terrier>=1.0",
+    "sentence-transformers>=3.0",
     "uvicorn>=0.44.0"
 ]
 requires-python = ">= 3.13"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
 
 [project.scripts]
 build-doc-db = "cdet_api.scripts.build_doc_db:main"
