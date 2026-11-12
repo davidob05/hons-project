@@ -1,0 +1,17 @@
+[run]
+runtag = "dense_doc_mdbv3"
+description = "Dense scoring of each day's whole documents with msmarco-distilbert-base-v3, cosine similarity to the question, top 20 returned."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s2_score]
+impl = "dense"
+model = "sentence-transformers/msmarco-distilbert-base-v3"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = 0.3
+
+[s5_gate]
+impl = "toolkit"

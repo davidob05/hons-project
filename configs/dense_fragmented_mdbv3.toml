@@ -1,0 +1,20 @@
+[run]
+runtag = "dense_frag_mdbv3"
+description = "Dense scoring of each day's line fragments with msmarco-distilbert-base-v3, cosine similarity to the question, best fragment per document, top 20 returned."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "lines"
+
+[s2_score]
+impl = "dense"
+model = "sentence-transformers/msmarco-distilbert-base-v3"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = 0.3
+
+[s5_gate]
+impl = "toolkit"
