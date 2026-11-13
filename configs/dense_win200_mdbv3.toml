@@ -1,0 +1,23 @@
+[run]
+runtag = "dense_win200_mdbv3"
+description = "Dense scoring of overlapping 200-word windows (50-word overlap) of each day's documents with msmarco-distilbert-base-v3, best window per document, top 20 returned."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s2_score]
+impl = "dense"
+model = "sentence-transformers/msmarco-distilbert-base-v3"
+device = "cuda"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1.0
+
+[s5_gate]
+impl = "toolkit"
