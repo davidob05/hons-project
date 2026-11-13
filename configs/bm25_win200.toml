@@ -1,0 +1,21 @@
+[run]
+runtag = "bm25_win200"
+description = "BM25 over overlapping 200-word windows (50-word overlap) of each day's documents, best window per document, top 20 returned. Control for the dense window runs."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s2_score]
+impl = "bm25_day"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = 0.0
+
+[s5_gate]
+impl = "toolkit"
