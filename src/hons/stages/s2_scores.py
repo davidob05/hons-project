@@ -164,3 +164,48 @@ class DenseEncoder:
                 for doc_id, (score, index) in cached[version.text].items()
             }
         return scores
+
+
+# Ref: Cormack GV, Clarke CLA, Buettcher S. Reciprocal Rank Fusion outperforms Condorcet and Individual Rank Learning
+# Methods. SIGIR 2009 (32nd), Boston, pp. 758 to 759. Supplies the fusion rule: a document's score is the sum over the
+# rankings of 1 / (k + rank), with k = 60 in the paper; adapted here to fuse BM25 and dense rankings per question and
+# per day. Status: unverified, cited from memory and not read. Not listed in References by Pipeline Stage.md (Stage 2
+# is where it would go); add it there and confirm the citation and page numbers.
+@register(STAGE, 'fused')
+class FusedScorer:
+    ref = ('Cormack, Clarke and Buettcher 2009, Reciprocal Rank Fusion, SIGIR 2009, pp. 758 to 759 '
+           '(unverified, not in the references document)')
+
+    def __init__(self, model: str = 'sentence-transformers/msmarco-distilbert-base-v3',
+                 device: str | None = None, batch_size: int = 64,
+                 cache_dir: str | None = 'cache/dense_scores', rrf_k: int = 60):
+        if rrf_k <= 0:
+            raise ValueError(f'rrf_k must be positive, got {rrf_k}')
+        self.rrf_k = rrf_k
+        self.bm25 = BM25Day()
+        self.dense = DenseEncoder(model=model, device=device, batch_size=batch_size, cache_dir=cache_dir)
+
+    @staticmethod
+    def ranks(by_doc: dict[str, DocScore]) -> dict[str, int]:
+        ordered = sorted(by_doc, key=lambda doc_id: by_doc[doc_id].score, reverse=True)
+        return {doc_id: rank for rank, doc_id in enumerate(ordered, start=1)}
+
+    def fuse(self, lexical: Scores, semantic: Scores, questions: dict[QuestionKey, QuestionVersion]) -> Scores:
+        fused = Scores(per_question={key: {} for key in questions})
+        for key in questions:
+            lexical_docs = lexical.per_question[key]
+            semantic_docs = semantic.per_question[key]
+            lexical_ranks = self.ranks(lexical_docs)
+            semantic_ranks = self.ranks(semantic_docs)
+            per_doc = fused.per_question[key]
+            for doc_id in lexical_ranks.keys() | semantic_ranks.keys():
+                score = sum(1 / (self.rrf_k + ranks[doc_id])
+                            for ranks in (lexical_ranks, semantic_ranks) if doc_id in ranks)
+                source = semantic_docs[doc_id] if doc_id in semantic_docs else lexical_docs[doc_id]
+                per_doc[doc_id] = DocScore(score=score, best_fragment=source.best_fragment)
+        return fused
+
+    def run(self, fragments: Fragments, questions: dict[QuestionKey, QuestionVersion]) -> Scores:
+        lexical = self.bm25.run(fragments, questions)
+        semantic = self.dense.run(fragments, questions)
+        return self.fuse(lexical, semantic, questions)
