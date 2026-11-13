@@ -1,0 +1,24 @@
+[run]
+runtag = "fused_win200_mdbv3"
+description = "Reciprocal rank fusion (k=60) of BM25 and msmarco-distilbert-base-v3 dense scores over overlapping 200-word windows (50-word overlap), best window per document, top 20 returned."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s2_score]
+impl = "fused"
+model = "sentence-transformers/msmarco-distilbert-base-v3"
+device = "cuda"
+rrf_k = 60
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1.0
+
+[s5_gate]
+impl = "toolkit"

@@ -1,0 +1,24 @@
+[run]
+runtag = "fused_win200_mlm"
+description = "Reciprocal rank fusion (k=60) of BM25 and all-MiniLM-L6-v2 dense scores (released around the 2021-08 cutoff, may be contaminated) over overlapping 200-word windows (50-word overlap), best window per document, top 20 returned."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s2_score]
+impl = "fused"
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+rrf_k = 60
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1.0
+
+[s5_gate]
+impl = "toolkit"
