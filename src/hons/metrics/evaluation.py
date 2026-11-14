@@ -139,6 +139,26 @@ def evaluate(run_file: Path, expected_file: Path, db_path: Path) -> list[Questio
     return [question_metrics(key, docs, returned.get(key, {}), appeared) for key, docs in expected.items()]
 
 
+def load_expected_sets(expected_file: Path, silver_file: Path | None) -> dict[str, dict[QuestionKey, set[str]]]:
+    sets = {'dev': load_expected(expected_file)}
+    if silver_file is not None:
+        silver = load_expected(silver_file)
+        sets['silver'] = silver
+        sets['combined'] = {key: sets['dev'].get(key, set()) | silver.get(key, set())
+                            for key in sets['dev'].keys() | silver.keys()}
+    return sets
+
+
+def evaluate_sets(run_file: Path, expected_file: Path, db_path: Path,
+                  silver_file: Path | None = None) -> dict[str, list[QuestionMetrics]]:
+    sets = load_expected_sets(expected_file, silver_file)
+    returned, days = load_returned(run_file)
+    every_id = set().union(*(docs for expected in sets.values() for docs in expected.values()))
+    appeared = load_reachable(db_path, every_id, days)
+    return {name: [question_metrics(key, docs, returned.get(key, {}), appeared) for key, docs in expected.items()]
+            for name, expected in sets.items()}
+
+
 def macro(values: list[float | None]) -> float | None:
     # mean over the questions where the metric is defined
     defined = [v for v in values if v is not None]
@@ -166,10 +186,12 @@ def _fmt(value: float | None, width: int, places: int = 2) -> str:
     return f'{value:>{width}.{places}f}' if value is not None else f'{"-":>{width}}'
 
 
-def report(rows: list[QuestionMetrics], out_file: Path) -> None:
+def print_rows(rows: list[QuestionMetrics], only_judged: bool = False) -> dict[str, float | None]:
     print(f'{"topic":<12}{"qid":<7}{"exp":>5}{"reach":>6}{"found":>6}{"onday":>6}{"ret":>6}'
           f'{"recall":>8}{"r@day":>7}{"prec":>7}{"mrr":>6}{"active":>7}{"unjudged":>9}')
     for r in rows:
+        if only_judged and not r.expected:
+            continue
         print(f'{r.tid:<12}{r.qid:<7}{r.expected:>5}{r.reachable:>6}{r.found:>6}{r.found_on_day:>6}{r.returned:>6}'
               f'{_fmt(r.recall, 8)}{_fmt(r.recall_on_day, 7)}{_fmt(r.precision, 7, 3)}{_fmt(r.mrr, 6)}'
               f'{r.active_days:>7}{r.unjudged_active_days:>9}')
@@ -182,6 +204,28 @@ def report(rows: list[QuestionMetrics], out_file: Path) -> None:
     print(f'mrr         macro {_fmt(summary["macro_mrr"], 6, 3)}   (days with a judged document)')
     print(f'volume      {_fmt(summary["docs_per_active_day"], 6, 1)} documents per active question-day, '
           f'{_fmt(summary["unjudged_active_day_share"], 5, 3)} of active question-days have no judged document')
+    return summary
 
+
+def report(rows: list[QuestionMetrics], out_file: Path) -> None:
+    summary = print_rows(rows)
     with open(out_file, 'w') as f:
         json.dump({'summary': summary, 'questions': [r.as_dict() for r in rows]}, f, indent=2)
+
+
+SET_TITLES = {
+    'dev': 'DEV judgments (the track\'s lists)',
+    'silver': 'SILVER judgments only (documents found in the false-alarm review; not official)',
+    'combined': 'COMBINED (dev + silver)',
+}
+
+
+def report_sets(results: dict[str, list[QuestionMetrics]], out_file: Path) -> None:
+    output = {}
+    for name, rows in results.items():
+        print('=' * 20, SET_TITLES[name], '=' * 20)
+        summary = print_rows(rows, only_judged=name == 'silver')
+        print()
+        output[name] = {'summary': summary, 'questions': [r.as_dict() for r in rows]}
+    with open(out_file, 'w') as f:
+        json.dump({**output['dev'], **{k: v for k, v in output.items() if k != 'dev'}}, f, indent=2)

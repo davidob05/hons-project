@@ -5,7 +5,7 @@ from pathlib import Path
 
 from cdet_api.types import SubmittedTopicResults
 
-from hons.metrics.evaluation import load_expected, load_reachable
+from hons.metrics.evaluation import load_expected_sets, load_reachable
 from hons.types import QuestionKey
 
 GAIN_DEPTH = 100
@@ -95,14 +95,7 @@ def average_precision(listed: list[str], relevant: set[str]) -> float:
     return total / len(relevant)
 
 
-def evaluate_proxies(run_file: Path, expected_file: Path, db_path: Path, empty: bool = False) -> dict:
-    expected = load_expected(expected_file)
-    run = load_run(run_file)
-    if empty:
-        run = RunRankings(days=run.days)
-    days = sorted(run.days)
-    appeared = load_reachable(db_path, set().union(*expected.values()), run.days)
-
+def score_proxies(expected: dict[QuestionKey, set[str]], run: RunRankings, days: list[str], appeared: dict[str, str]) -> dict:
     relevant_on: dict[QuestionKey, dict[str, set[str]]] = {}
     for key, docs in expected.items():
         by_day: dict[str, set[str]] = {}
@@ -144,8 +137,6 @@ def evaluate_proxies(run_file: Path, expected_file: Path, db_path: Path, empty: 
 
     overall = {name: mean(topic[name] for topic in topics.values()) for name in (*METRICS, 'p5_ap', 'p5_false_positive')}
     return {
-        'label': 'proxy metrics, not the official scorer',
-        'empty_run': empty,
         'days': len(days),
         'active_pairs': active_pairs,
         'inactive_pairs': inactive_pairs,
@@ -155,14 +146,30 @@ def evaluate_proxies(run_file: Path, expected_file: Path, db_path: Path, empty: 
     }
 
 
+def evaluate_proxies(run_file: Path, expected_file: Path, db_path: Path, empty: bool = False,
+                     silver_file: Path | None = None) -> dict:
+    sets = load_expected_sets(expected_file, silver_file)
+    run = load_run(run_file)
+    if empty:
+        run = RunRankings(days=run.days)
+    days = sorted(run.days)
+    every_id = set().union(*(docs for expected in sets.values() for docs in expected.values()))
+    appeared = load_reachable(db_path, every_id, run.days)
+
+    result = {'label': 'proxy metrics, not the official scorer', 'empty_run': empty,
+              **score_proxies(sets['dev'], run, days, appeared)}
+    if 'combined' in sets:
+        result['combined'] = score_proxies(sets['combined'], run, days, appeared)
+    return result
+
+
 def _fmt(value: float | None) -> str:
     return '   n/a' if value is None else f'{value:6.3f}'
 
 
-def report(result: dict, out_file: Path) -> None:
-    print(f'PROXY metrics (not the official scorer){"  [empty run]" if result["empty_run"] else ""}')
+def print_result(title: str, result: dict) -> None:
+    print(f'--- {title}')
     print(f'{result["days"]} days; {result["active_pairs"]} active and {result["inactive_pairs"]} inactive question-day pairs')
-    print('P3 is averaged over active pairs only; an empty list on an active pair scores 0')
     header = f'{"":10}{"P1":>7}{"P2":>7}{"P3":>7}{"F1":>7}{"falseAl":>8}{"miss":>7}{"P5 AP":>7}{"P5 FP":>7}'
     print(header)
     rows = [('overall', result['overall'])] + list(result['topics'].items())
@@ -170,5 +177,13 @@ def report(result: dict, out_file: Path) -> None:
         print(f'{name:10}' + ''.join(f'{_fmt(scores[m]):>7}' for m in METRICS[:4])
               + f'{_fmt(scores["false_alarm"]):>8}{_fmt(scores["miss"]):>7}'
               + f'{_fmt(scores["p5_ap"]):>7}{_fmt(scores["p5_false_positive"]):>7}')
+
+
+def report(result: dict, out_file: Path) -> None:
+    print(f'PROXY metrics (not the official scorer){"  [empty run]" if result["empty_run"] else ""}')
+    print('P3 is averaged over active pairs only; an empty list on an active pair scores 0')
+    print_result('DEV judgments (the track\'s lists)', result)
+    if 'combined' in result:
+        print_result('COMBINED (dev + silver judgments; silver is not official)', result['combined'])
     with open(out_file, 'w') as f:
         json.dump(result, f, indent=2)
