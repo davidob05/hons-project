@@ -1,3 +1,5 @@
+from collections import deque
+
 from hons.registry import register
 from hons.types import DocScore, Scores, QuestionKey, Candidates, Candidate
 
@@ -33,4 +35,43 @@ class Topk:
             for doc_id in ranked[:self.k]:
                 if by_doc[doc_id].score > self.min_score:
                     candidates.add_candidate(Candidate(doc_id, by_doc[doc_id]), key)
+        return candidates
+
+
+@register(STAGE,'quantile')
+class QuantileGate:
+    def __init__(self, k: int = 20, q: float = 0.95, window: int | None = 60, warmup: int = 30):
+        if not 0 < q < 1:
+            raise ValueError(f'q must be between 0 and 1, got {q}')
+        if k < 1:
+            raise ValueError(f'k must be at least 1, got {k}')
+        if warmup < 1:
+            raise ValueError(f'warmup must be at least 1, got {warmup}')
+        if window is not None and window < warmup:
+            raise ValueError(f'window ({window}) must be at least warmup ({warmup})')
+        self.k = k
+        self.q = q
+        self.window = window
+        self.warmup = warmup
+        self.history: dict[QuestionKey, deque[float]] = {}
+
+    def bar(self, key: QuestionKey) -> float | None:
+        history = self.history.get(key)
+        if history is None or len(history) < self.warmup:
+            return None
+        ordered = sorted(history)
+        return ordered[min(int(self.q * len(ordered)), len(ordered) - 1)]
+
+    def run(self, scores: Scores) -> Candidates:
+        candidates = Candidates()
+        for key, by_doc in scores.per_question.items():
+            if not by_doc:
+                continue
+            bar = self.bar(key)
+            if bar is not None:
+                ranked = sorted(by_doc, key=lambda doc_id: by_doc[doc_id].score, reverse=True)
+                for doc_id in ranked[:self.k]:
+                    if by_doc[doc_id].score > bar:
+                        candidates.add_candidate(Candidate(doc_id, by_doc[doc_id], excess=by_doc[doc_id].score - bar), key)
+            self.history.setdefault(key, deque(maxlen=self.window)).append(max(doc.score for doc in by_doc.values()))
         return candidates
