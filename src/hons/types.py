@@ -68,6 +68,8 @@ class QuestionVersion:
     tid: str
     text: str
     effective_from: int = 0     # sequence number of the first day this version is in force
+    label: str = ''
+    narrative: str = ''
 
     @property
     def key(self) -> QuestionKey:

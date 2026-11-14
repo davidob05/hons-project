@@ -18,7 +18,8 @@ def initial_questions(topics: list[dict]) -> dict[QuestionKey, QuestionVersion]:
     questions = {}
     for topic in topics:
         for question in topic['questions']:
-            version = QuestionVersion(qid=question['qid'], tid=topic['tid'], text=question['question'])
+            version = QuestionVersion(qid=question['qid'], tid=topic['tid'], text=question['question'],
+                                      label=topic.get('label', ''), narrative=topic.get('narrative', ''))
             questions[version.key] = version
     return questions
 
@@ -31,7 +32,7 @@ def run_day(stages: dict[str, Any], batch: DayBatch, base: dict[QuestionKey, Que
 
     fragments = stages['s0_fragment'].run(batch)
     seeded = stages['s1_questions'].run(batch, examples)
-    scores = stages['s2_score'].run(fragments, questions)
+    scores = stages['s2_score'].run(fragments, stages['s1_questions'].represent(questions))
     candidates = stages['s3_tail'].run(scores)
     candidates = stages['s4_novelty'].run(candidates, state, fragments)
     results = stages['s5_gate'].run(candidates)
