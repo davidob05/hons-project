@@ -1,3 +1,4 @@
+import statistics
 from collections import deque
 
 from hons.registry import register
@@ -38,11 +39,8 @@ class Topk:
         return candidates
 
 
-@register(STAGE,'quantile')
-class QuantileGate:
-    def __init__(self, k: int = 20, q: float = 0.95, window: int | None = 60, warmup: int = 30):
-        if not 0 < q < 1:
-            raise ValueError(f'q must be between 0 and 1, got {q}')
+class HistoryGate:
+    def __init__(self, k: int, window: int | None, warmup: int):
         if k < 1:
             raise ValueError(f'k must be at least 1, got {k}')
         if warmup < 1:
@@ -50,17 +48,18 @@ class QuantileGate:
         if window is not None and window < warmup:
             raise ValueError(f'window ({window}) must be at least warmup ({warmup})')
         self.k = k
-        self.q = q
         self.window = window
         self.warmup = warmup
         self.history: dict[QuestionKey, deque[float]] = {}
+
+    def threshold(self, ordered: list[float]) -> float:
+        raise NotImplementedError
 
     def bar(self, key: QuestionKey) -> float | None:
         history = self.history.get(key)
         if history is None or len(history) < self.warmup:
             return None
-        ordered = sorted(history)
-        return ordered[min(int(self.q * len(ordered)), len(ordered) - 1)]
+        return self.threshold(sorted(history))
 
     def run(self, scores: Scores) -> Candidates:
         candidates = Candidates()
@@ -75,3 +74,29 @@ class QuantileGate:
                         candidates.add_candidate(Candidate(doc_id, by_doc[doc_id], excess=by_doc[doc_id].score - bar), key)
             self.history.setdefault(key, deque(maxlen=self.window)).append(max(doc.score for doc in by_doc.values()))
         return candidates
+
+
+@register(STAGE,'quantile')
+class QuantileGate(HistoryGate):
+    def __init__(self, k: int = 20, q: float = 0.95, window: int | None = 60, warmup: int = 30):
+        if not 0 < q < 1:
+            raise ValueError(f'q must be between 0 and 1, got {q}')
+        super().__init__(k, window, warmup)
+        self.q = q
+
+    def threshold(self, ordered: list[float]) -> float:
+        return ordered[min(int(self.q * len(ordered)), len(ordered) - 1)]
+
+
+@register(STAGE,'mad')
+class MadGate(HistoryGate):
+    def __init__(self, k: int = 20, c: float = 3.0, window: int | None = 60, warmup: int = 30):
+        if c <= 0:
+            raise ValueError(f'c must be positive, got {c}')
+        super().__init__(k, window, warmup)
+        self.c = c
+
+    def threshold(self, ordered: list[float]) -> float:
+        median = statistics.median(ordered)
+        spread = statistics.median(abs(value - median) for value in ordered)
+        return median + self.c * 1.4826 * spread
