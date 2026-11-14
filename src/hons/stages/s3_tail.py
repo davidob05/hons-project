@@ -39,7 +39,12 @@ class Topk:
         return candidates
 
 
+# Ref: Original design. No paper behind it: a per-question bar learned causally from a rolling window of that
+# question's own daily top scores, silent until warmup days of history exist. Not listed in References by Pipeline
+# Stage.md. Subclasses supply the rule that turns the history into a bar.
 class HistoryGate:
+    ref = 'Original design, no source'
+
     def __init__(self, k: int, window: int | None, warmup: int):
         if k < 1:
             raise ValueError(f'k must be at least 1, got {k}')
@@ -76,8 +81,13 @@ class HistoryGate:
         return candidates
 
 
+# Ref: Original design. The bar is a quantile q of the question's recent daily top scores (nearest rank). No
+# paper behind it, and not listed in References by Pipeline Stage.md. It is the per-question quantile rung of the Stage 3
+# ladder, which the briefing lists without a source.
 @register(STAGE,'quantile')
 class QuantileGate(HistoryGate):
+    ref = 'Original design, no source'
+
     def __init__(self, k: int = 20, q: float = 0.95, window: int | None = 60, warmup: int = 30):
         if not 0 < q < 1:
             raise ValueError(f'q must be between 0 and 1, got {q}')
@@ -88,8 +98,14 @@ class QuantileGate(HistoryGate):
         return ordered[min(int(self.q * len(ordered)), len(ordered) - 1)]
 
 
+# Ref: Standard technique, no source read. The bar is median + c * 1.4826 * MAD of the question's recent daily top
+# scores, a robust version of mean plus c standard deviations (1.4826 is the usual constant that makes the median
+# absolute deviation comparable to a standard deviation for normal data). Applied here to the gating history
+# described on HistoryGate. Not listed in References by Pipeline Stage.md; no citation given because none was read.
 @register(STAGE,'mad')
 class MadGate(HistoryGate):
+    ref = 'Standard technique (robust z-score), no source read'
+
     def __init__(self, k: int = 20, c: float = 3.0, window: int | None = 60, warmup: int = 30):
         if c <= 0:
             raise ValueError(f'c must be positive, got {c}')
