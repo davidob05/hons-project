@@ -1,0 +1,17 @@
+[run]
+runtag = "bm25_acc_doc_d1"
+description = "Python BM25 over whole documents with word statistics from the current day only (control for the accumulated-statistics runs, same implementation). Top 20 returned."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s2_score]
+impl = "bm25_acc"
+days = 1
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = 0.0
+
+[s5_gate]
+impl = "toolkit"

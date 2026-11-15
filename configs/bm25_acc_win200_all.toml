@@ -1,0 +1,22 @@
+[run]
+runtag = "bm25_acc_w200_all"
+description = "Python BM25 over overlapping 200-word windows (50 overlap) with word statistics accumulated over all days seen so far, including today. Top 20 returned."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s2_score]
+impl = "bm25_acc"
+
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = 0.0
+
+[s5_gate]
+impl = "toolkit"

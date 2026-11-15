@@ -1,0 +1,19 @@
+[run]
+runtag = "bm25_acc_all_mad3"
+description = "Python BM25 over whole documents with statistics accumulated over all days, with the Stage 3 MAD gate (c = 3, last 60 daily top scores, 30-day warm-up). Compare with bm25_doc_mad3, which uses per-day Terrier statistics."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s2_score]
+impl = "bm25_acc"
+
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 3.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"
