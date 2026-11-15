@@ -1,0 +1,27 @@
+[run]
+runtag = "dense_w100_mlm_nar"
+description = "Dense scoring of overlapping 100-word windows (25 overlap) with all-MiniLM-L6-v2 (may be contaminated); the topic narrative is appended to each question before scoring. Top 20 returned."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 100
+overlap = 25
+
+[s1_questions]
+impl = "template"
+template = "{question} {narrative}"
+
+[s2_score]
+impl = "dense"
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1.0
+
+[s5_gate]
+impl = "toolkit"

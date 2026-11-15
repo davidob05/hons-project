@@ -1,0 +1,23 @@
+[run]
+runtag = "dense_w100_mqa"
+description = "Dense scoring of overlapping 100-word windows (25 overlap) with multi-qa-MiniLM-L6-cos-v1, an encoder tuned for question to passage retrieval (release date not verified, may be contaminated). Top 20 returned."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 100
+overlap = 25
+
+[s2_score]
+impl = "dense"
+model = "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"
+device = "cuda"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1.0
+
+[s5_gate]
+impl = "toolkit"
