@@ -1,0 +1,18 @@
+[run]
+runtag = "bm25_doc_mad3"
+description = "BM25 over each day's whole documents; Stage 3 MAD gate (median + 3 scaled MAD of the question's last 60 daily top scores, 30-day warm-up), up to 20 returned."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s2_score]
+impl = "bm25_day"
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 3.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"
