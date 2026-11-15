@@ -1,0 +1,27 @@
+[run]
+runtag = "bm25_w200_lbl_mad3"
+description = "BM25 over 200-word windows (50 overlap) with the topic label prepended to each question; Stage 3 MAD gate (c = 3, last 60 daily top scores, 30-day warm-up)."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s1_questions]
+impl = "template"
+template = "{label}: {question}"
+
+[s2_score]
+impl = "bm25_day"
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 3.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"

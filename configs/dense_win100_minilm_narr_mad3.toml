@@ -1,0 +1,29 @@
+[run]
+runtag = "mlm_w100_nar_mad3"
+description = "Dense MiniLM (may be contaminated) over 100-word windows with the topic narrative appended to each question; Stage 3 MAD gate (c = 3). Scores are read from the cache of the ungated narrative run."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 100
+overlap = 25
+
+[s1_questions]
+impl = "template"
+template = "{question} {narrative}"
+
+[s2_score]
+impl = "dense"
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 3.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"
