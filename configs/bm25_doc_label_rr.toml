@@ -1,0 +1,26 @@
+[run]
+runtag = "bm25_rr_lbl"
+description = "BM25 whole docs (Terrier) with the topic label prepended; the top 30 are reranked by an MS MARCO cross-encoder on each document's first 100 words (model release date unverified, may be contaminated). Top 20 returned, no gate."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s1_questions]
+impl = "template"
+template = "{label}: {question}"
+
+[s2_score]
+impl = "rerank"
+first = "bm25_day"
+candidates = 30
+model = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+device = "cuda"
+passage = "lead"
+words = 100
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1000.0
+
+[s5_gate]
+impl = "toolkit"
