@@ -1,0 +1,26 @@
+[run]
+runtag = "fused_k10_mad3"
+description = "Reciprocal rank fusion with k = 10 of BM25 and all-MiniLM-L6-v2 (may be contaminated) over 200-word windows; Stage 3 MAD gate (c = 3, last 60 daily top scores, 30-day warm-up)."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s2_score]
+impl = "fused"
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+rrf_k = 10
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 3.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"

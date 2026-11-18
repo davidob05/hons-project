@@ -1,0 +1,24 @@
+[run]
+runtag = "fused_w200_zsum"
+description = "Z-score fusion (each scorer standardised over the day's documents, then added) of BM25 and all-MiniLM-L6-v2 (may be contaminated) over 200-word windows. Top 20 returned, no gate."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s2_score]
+impl = "fused"
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+fusion = "zsum"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1000.0
+
+[s5_gate]
+impl = "toolkit"
