@@ -13,3 +13,5 @@ runs/
 *.jsonl
 !data/*.jsonl
 dev_dated.json
+cache/
+ignored/*
