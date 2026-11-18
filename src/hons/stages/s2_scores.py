@@ -170,18 +170,27 @@ class DenseEncoder:
 # Methods. SIGIR 2009 (32nd), Boston, pp. 758 to 759. Supplies the fusion rule: a document's score is the sum over the
 # rankings of 1 / (k + rank), with k = 60 in the paper; adapted here to fuse BM25 and dense rankings per question and
 # per day. Status: unverified, cited from memory and not read. Not listed in References by Pipeline Stage.md (Stage 2
-# is where it would go); add it there and confirm the citation and page numbers.
+# is where it would go); add it there and confirm the citation and page numbers. The zsum option is a different,
+# standard technique with no source read: each scorer's scores for a question on a day are standardised (z-scores over
+# that day's documents) and added, which keeps score magnitude so the result can be gated.
 @register(STAGE, 'fused')
 class FusedScorer:
     ref = ('Cormack, Clarke and Buettcher 2009, Reciprocal Rank Fusion, SIGIR 2009, pp. 758 to 759 '
-           '(unverified, not in the references document)')
+           '(unverified, not in the references document); zsum: standard technique, no source read')
 
     def __init__(self, model: str = 'sentence-transformers/msmarco-distilbert-base-v3',
                  device: str | None = None, batch_size: int = 64,
-                 cache_dir: str | None = 'cache/dense_scores', rrf_k: int = 60):
+                 cache_dir: str | None = 'cache/dense_scores', rrf_k: int = 60,
+                 fusion: str = 'rrf', lexical_weight: float = 1.0):
         if rrf_k <= 0:
             raise ValueError(f'rrf_k must be positive, got {rrf_k}')
+        if fusion not in ('rrf', 'zsum'):
+            raise ValueError(f'fusion must be "rrf" or "zsum", got {fusion!r}')
+        if lexical_weight < 0:
+            raise ValueError(f'lexical_weight must not be negative, got {lexical_weight}')
         self.rrf_k = rrf_k
+        self.fusion = fusion
+        self.lexical_weight = lexical_weight
         self.bm25 = BM25Day()
         self.dense = DenseEncoder(model=model, device=device, batch_size=batch_size, cache_dir=cache_dir)
 
@@ -190,7 +199,7 @@ class FusedScorer:
         ordered = sorted(by_doc, key=lambda doc_id: by_doc[doc_id].score, reverse=True)
         return {doc_id: rank for rank, doc_id in enumerate(ordered, start=1)}
 
-    def fuse(self, lexical: Scores, semantic: Scores, questions: dict[QuestionKey, QuestionVersion]) -> Scores:
+    def fuse_rrf(self, lexical: Scores, semantic: Scores, questions: dict[QuestionKey, QuestionVersion]) -> Scores:
         fused = Scores(per_question={key: {} for key in questions})
         for key in questions:
             lexical_docs = lexical.per_question[key]
@@ -204,6 +213,37 @@ class FusedScorer:
                 source = semantic_docs[doc_id] if doc_id in semantic_docs else lexical_docs[doc_id]
                 per_doc[doc_id] = DocScore(score=score, best_fragment=source.best_fragment)
         return fused
+
+    @staticmethod
+    def standardise(raw: list[float]) -> list[float]:
+        import numpy as np
+
+        values = np.asarray(raw, dtype=float)
+        spread = values.std()
+        if spread == 0:
+            return [0.0] * len(raw)
+        return ((values - values.mean()) / spread).tolist()
+
+    def fuse_zsum(self, lexical: Scores, semantic: Scores, questions: dict[QuestionKey, QuestionVersion]) -> Scores:
+        fused = Scores(per_question={key: {} for key in questions})
+        for key in questions:
+            lexical_docs = lexical.per_question[key]
+            semantic_docs = semantic.per_question[key]
+            population = sorted(lexical_docs.keys() | semantic_docs.keys())
+            if not population:
+                continue
+            lexical_z = self.standardise([lexical_docs[d].score if d in lexical_docs else 0.0 for d in population])
+            semantic_z = self.standardise([semantic_docs[d].score if d in semantic_docs else 0.0 for d in population])
+            per_doc = fused.per_question[key]
+            for doc_id, lz, sz in zip(population, lexical_z, semantic_z):
+                source = semantic_docs[doc_id] if doc_id in semantic_docs else lexical_docs[doc_id]
+                per_doc[doc_id] = DocScore(score=self.lexical_weight * lz + sz, best_fragment=source.best_fragment)
+        return fused
+
+    def fuse(self, lexical: Scores, semantic: Scores, questions: dict[QuestionKey, QuestionVersion]) -> Scores:
+        if self.fusion == 'zsum':
+            return self.fuse_zsum(lexical, semantic, questions)
+        return self.fuse_rrf(lexical, semantic, questions)
 
     def run(self, fragments: Fragments, questions: dict[QuestionKey, QuestionVersion]) -> Scores:
         lexical = self.bm25.run(fragments, questions)
