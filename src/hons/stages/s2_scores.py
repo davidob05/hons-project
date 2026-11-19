@@ -3,6 +3,7 @@ import os
 import pickle
 import shutil
 import tempfile
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -116,7 +117,7 @@ class DenseEncoder:
             return
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         path = self.cache_dir / f'{digest}.pkl'
-        tmp = path.with_suffix('.tmp')
+        tmp = path.with_suffix(f'.{uuid.uuid4().hex}.tmp')
         with tmp.open('wb') as f:
             pickle.dump(cached, f)
         os.replace(tmp, path)
@@ -172,7 +173,10 @@ class DenseEncoder:
 # per day. Status: unverified, cited from memory and not read. Not listed in References by Pipeline Stage.md (Stage 2
 # is where it would go); add it there and confirm the citation and page numbers. The zsum option is a different,
 # standard technique with no source read: each scorer's scores for a question on a day are standardised (z-scores over
-# that day's documents) and added, which keeps score magnitude so the result can be gated.
+# that day's documents) and added, which keeps score magnitude so the result can be gated. The prefilter option is
+# original design: BM25 is run over the whole day, and only the union of each question's top N documents goes to the
+# dense scorer, so the encoder reads fewer documents. The lexical option chooses the BM25 backend: Terrier (the
+# toolkit's) or the pure-Python scorer in s2_bm25.py, which is much faster when there are hundreds of questions.
 @register(STAGE, 'fused')
 class FusedScorer:
     ref = ('Cormack, Clarke and Buettcher 2009, Reciprocal Rank Fusion, SIGIR 2009, pp. 758 to 759 '
@@ -181,7 +185,12 @@ class FusedScorer:
     def __init__(self, model: str = 'sentence-transformers/msmarco-distilbert-base-v3',
                  device: str | None = None, batch_size: int = 64,
                  cache_dir: str | None = 'cache/dense_scores', rrf_k: int = 60,
-                 fusion: str = 'rrf', lexical_weight: float = 1.0):
+                 fusion: str = 'rrf', lexical_weight: float = 1.0, prefilter: int | None = None,
+                 lexical: str = 'terrier', lexical_params: dict | None = None):
+        if lexical not in ('terrier', 'python'):
+            raise ValueError(f'lexical must be "terrier" or "python", got {lexical!r}')
+        if prefilter is not None and prefilter < 1:
+            raise ValueError(f'prefilter must be at least 1, got {prefilter}')
         if rrf_k <= 0:
             raise ValueError(f'rrf_k must be positive, got {rrf_k}')
         if fusion not in ('rrf', 'zsum'):
@@ -191,7 +200,13 @@ class FusedScorer:
         self.rrf_k = rrf_k
         self.fusion = fusion
         self.lexical_weight = lexical_weight
-        self.bm25 = BM25Day()
+        self.prefilter = prefilter
+        if lexical == 'python':
+            from hons.stages.s2_bm25 import BM25Accumulated
+
+            self.bm25 = BM25Accumulated(**(lexical_params or {'days': 1}))
+        else:
+            self.bm25 = BM25Day()
         self.dense = DenseEncoder(model=model, device=device, batch_size=batch_size, cache_dir=cache_dir)
 
     @staticmethod
@@ -245,7 +260,19 @@ class FusedScorer:
             return self.fuse_zsum(lexical, semantic, questions)
         return self.fuse_rrf(lexical, semantic, questions)
 
+    def candidates(self, lexical: Scores) -> set[str]:
+        chosen: set[str] = set()
+        for by_doc in lexical.per_question.values():
+            chosen.update(sorted(by_doc, key=lambda doc_id: by_doc[doc_id].score, reverse=True)[:self.prefilter])
+        return chosen
+
     def run(self, fragments: Fragments, questions: dict[QuestionKey, QuestionVersion]) -> Scores:
         lexical = self.bm25.run(fragments, questions)
+        if self.prefilter is not None:
+            chosen = self.candidates(lexical)
+            fragments = Fragments(fragments={doc_id: by_index for doc_id, by_index in fragments.fragments.items() if doc_id in chosen},
+                                  docs={doc_id: info for doc_id, info in fragments.docs.items() if doc_id in chosen})
+            lexical = Scores(per_question={key: {doc_id: score for doc_id, score in by_doc.items() if doc_id in chosen}
+                                           for key, by_doc in lexical.per_question.items()})
         semantic = self.dense.run(fragments, questions)
         return self.fuse(lexical, semantic, questions)

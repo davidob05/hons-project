@@ -1,0 +1,30 @@
+[run]
+runtag = "fused_w200_py"
+description = "As fused_win200_minilm_narr but with the pure-Python BM25 (per-day statistics) instead of Terrier, and no prefilter. Same output type, much faster BM25 when there are hundreds of questions."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s1_questions]
+impl = "template"
+template = "{question} {narrative}"
+
+[s2_score]
+impl = "fused"
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+rrf_k = 60
+lexical = "python"
+lexical_params = { days = 1 }
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1000.0
+
+[s5_gate]
+impl = "toolkit"

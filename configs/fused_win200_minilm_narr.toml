@@ -1,0 +1,28 @@
+[run]
+runtag = "fused_w200_nar"
+description = "Reciprocal rank fusion of BM25 and all-MiniLM-L6-v2 (may be contaminated) over 200-word windows with the topic narrative appended to each question. No prefilter: the dense scorer reads every document of the day. Baseline for the prefilter timing."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s1_questions]
+impl = "template"
+template = "{question} {narrative}"
+
+[s2_score]
+impl = "fused"
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+rrf_k = 60
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1000.0
+
+[s5_gate]
+impl = "toolkit"

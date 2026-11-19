@@ -1,0 +1,31 @@
+[run]
+runtag = "fused_w200_py_pf50"
+description = "As fused_win200_minilm_narr_py, with the union of each question's BM25 top 50 going to the dense scorer."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s1_questions]
+impl = "template"
+template = "{question} {narrative}"
+
+[s2_score]
+impl = "fused"
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+rrf_k = 60
+lexical = "python"
+lexical_params = { days = 1 }
+prefilter = 50
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1000.0
+
+[s5_gate]
+impl = "toolkit"
