@@ -12,7 +12,7 @@ Companion to the CDET briefing. This file says how to lay out the code so that e
   - `next_day()` returns `None` on any non-404 failure (it only prints). The runner must treat `None` as an error and stop, otherwise a day is silently skipped.
   - `retrieval()` prints and swallows errors. A failed post leaves a date missing, which the track reads as "all questions rank 0". Subclass the client in `hons/io/client.py` to raise instead of printing. Do not edit `client.py`.
   - `QuestionResults.question_text` is `str | None` with no default, so always pass it.
-- `check-cdet-run.py` already validates a finished run (dates, topics, qids, 100-document limit, duplicates). Reuse it as the Stage 6 validator rather than writing a second one. It now writes its `.errlog` to `logs/`.
+- `check-cdet-run.py` already validates a finished run (dates, topics, qids, 100-document limit, duplicates). Reuse it as the output validator rather than writing a second one. It now writes its `.errlog` to `logs/`.
 
 ## 2. Design
 
@@ -37,12 +37,12 @@ Each stage config has `enabled` (bool) and `impl` (name) plus its own parameters
 | 0 fragment | one fragment per document (the whole text), no boilerplate flags, no groups |
 | 1 questions | version 0 only: question text, no narrative, no seeds |
 | 2 score | cannot be off; `impl` chooses (`bm25_day` is the toolkit rule) |
-| 3 tail/bar | cannot be off; `impl = "empty"` returns no candidates, `impl = "topk"` is the simplest rule |
+| 3 tail/bar | no candidates, so every question is returned empty (`impl = "topk"` is the simplest rule that returns any) |
 | 4 novelty | weight fixed at 1 |
 | 5 gate/rank | cannot be off; `impl = "all_candidates"` is the simplest rule |
-| 6 output | cannot be off |
-| 7 propose | never propose |
-| 8 state | stateless: every day recomputed from nothing (carried state is the thing being ablated) |
+| 6 propose | never propose |
+| 7 state | stateless: every day recomputed from nothing (carried state is the thing being ablated) |
+| output | not a stage: a sink in `io/sink.py`, chosen by `[run] mode` |
 
 ### 2.4 Data contracts (dataclasses in `hons/types.py`)
 
@@ -75,14 +75,14 @@ Sections and their options (the first value of each list is not a default; defau
 | `[s2_score]` | `impl` | `bm25_day`, `bm25_acc`, `dense`, `fused` |
 | `[s2_score]` | `aggregate` | `best_fragment`, `lead`, `mean_top2`, `weighted` |
 | `[s2_score]` | `normalise` | `none`, `zscore_window`, `s1pct` |
-| `[s3_tail]` | `impl` | `empty`, `topk`, `fixed`, `quantile`, `surprise`, `spot`, `dspot`, `hybrid` |
+| `[s3_tail]` | `impl` | `topk`, `fixed`, `quantile`, `surprise`, `spot`, `dspot`, `hybrid` |
 | `[s3_tail]` | `q` | tail probability, for example 1e-5 |
 | `[s4_novelty]` | `enabled` | on or off (options in section 7) |
 | `[s5_gate]` | `impl` | `all_candidates`, `top1`, `best_excess`, `sum_top`, `entropy` |
 | `[s5_gate]` | `correction` | `none`, `bonferroni`, `sidak`, `bh` |
 | `[s5_gate]` | `group_policy` | `list_all`, `list_best` |
-| `[s7_propose]` | `enabled` | on or off (options in section 8) |
-| `[s8_state]` | `enabled`, `window_days` | on or off; window length in days |
+| `[s6_propose]` | `enabled` | on or off (options in section 8) |
+| `[s7_state]` | `enabled`, `window_days` | on or off; window length in days |
 | `[models]` | `used` | list of models; copied into run metadata automatically |
 
 The config is hashed into the run directory name (`runs/<runtag>-<hash>/`) so results are always traceable to the exact toggles. Metadata `models` and `extern` are filled from whichever components declare them (each class has `models = [...]` and `extern = "..."` attributes), so the run file cannot omit a model that was actually used.
@@ -92,9 +92,9 @@ The config is hashed into the run directory name (`runs/<runtag>-<hash>/`) so re
 ```
 src/hons/
   types.py  config.py  registry.py  runner.py
-  io/        source.py (DaySource: db replay)  client.py (strict CDetClient subclass)  topics.py
+  io/        source.py (DaySource: db replay)  sink.py (ReplaySink, LiveSink)  client.py (strict CDetClient subclass)  topics.py
   stages/    s0_fragment.py  s1_questions.py  s2_score.py  s3_tail.py
-             s4_novelty.py   s5_gate.py       s6_output.py s7_propose.py  s8_state.py
+             s4_novelty.py   s5_gate.py       s6_propose.py  s7_state.py
   state/     sqlite.py (registry, versions, memory, caches)   cache.py (keyed score cache)
   metrics/   proxies.py  (P1-P5)  qwa.py (later)
   analysis/  date_dev.py (Appendix A2)  day_stats.py  summarise_run.py
@@ -115,11 +115,11 @@ The runner loops over the days from the `DaySource`, in order, from day 0. For e
 4. Stage 3 turns scores into candidates.
 5. Stage 4 rewrites the candidate weights using novelty.
 6. Stage 5 turns candidates into the day's output.
-7. Stage 7 adds proposed questions to the output. This happens before Stage 6, so a proposal appears on the same day.
-8. Stage 6 writes the output. Live mode calls `client.retrieval` for every topic. Replay mode appends to the run file.
-9. Stage 8 updates state, and only after the output has been written.
+7. Stage 6 adds proposed questions to the output. This happens before the sink writes, so a proposal appears on the same day.
+8. The sink writes the output. Live mode calls `client.retrieval` for every topic. Replay mode appends to the run file.
+9. Stage 7 updates state, and only after the output has been written.
 
-Replay and live differ only in `DaySource` and `s6.write`. Add a test that runs three days in both modes with the baseline config and compares outputs.
+Replay and live differ only in `DaySource` and the sink (`ReplaySink` or `LiveSink`). Add a test that runs three days in both modes with the baseline config and compares outputs.
 
 ## 3. Build order
 
@@ -127,16 +127,16 @@ Matches the briefing milestones. Each row is shippable and testable before the n
 
 | Step | Work | Done when |
 | --- | --- | --- |
-| P0 | `types.py`, `config.py`, `registry.py`, `io/` (source, strict client, topics), runner skeleton with all `off` stages, `s6` writer | empty-run config produces a file that `check-cdet-run.py` accepts, in replay and live mode |
+| P0 | `types.py`, `config.py`, `registry.py`, `io/` (source, strict client, topics), runner skeleton with all `off` stages, sinks | empty-run config produces a file that `check-cdet-run.py` accepts, in replay and live mode |
 | P1 | `analysis/date_dev.py` (briefing A2), `day_stats.py` (per-day counts, id prefixes), `.gitignore` | active days per question table; confirms 1,093 days |
 | P2 | `metrics/proxies.py` P1-P5 with unit tests from briefing B10 | empty run = max on inactive, 0 on active; toolkit baseline false-alarm rate reported |
 | P3 | `s2: bm25_day` (wrap the toolkit baseline), `s3: topk/fixed`, `s5: all_candidates` | reproduces `my-run.json` under the new runner (sanity check of the whole harness) |
-| P4 | M4 minimum system: `s2: bm25_acc` + `zscore_window`, `s3: quantile`, `s5: best_excess`, `s8` windows | beats the toolkit baseline on false-alarm rate |
+| P4 | M4 minimum system: `s2: bm25_acc` + `zscore_window`, `s3: quantile`, `s5: best_excess`, `s7` windows | beats the toolkit baseline on false-alarm rate |
 | P5 | `s3`: surprise, spot, dspot, hybrid; q sweep; leave-one-topic-out tuning script | ladder table |
 | P6 | `s1` seeds and example arrival, with the causality test (briefing B11) | an example never affects days before its arrival |
-| P7 | `s4` novelty variants (**focus stage**, see section 6) | ablation table including weight 0 |
+| P7 | `s4` novelty variants (**focus stage**, see section 7) | ablation table including weight 0 |
 | P8 | `s0` full: shingles, boilerplate registry, page families, groups | retention check and audit script |
-| P9 | `s7` propose, leave-one-question-out (**focus stage**, see section 7) | proposals per topic, held-out recall |
+| P9 | `s6` propose, leave-one-question-out (**focus stage**, see section 8) | proposals per topic, held-out recall |
 | P10 | LM and dense variants behind the same registry, cached by (question, doc, model, prompt) | cost per day reported, rows labelled "may be contaminated" |
 
 P0 to P4 are the minimum worth showing a supervisor: they give a working harness, floors, and one real system.
@@ -144,15 +144,15 @@ P0 to P4 are the minimum worth showing a supervisor: they give a working harness
 ## 4. Cross-cutting rules
 
 - **Cache**: `state/cache.py` keys every expensive score by (kind, question version, fragment hash, model, params). Threshold sweeps then rerun without rescoring.
-- **Checkpoints**: `s8` writes a daily checkpoint (SQLite) so a run resumes after a crash. A mid-collection start without a checkpoint is refused by the runner, since peaks, windows and memory would be wrong.
+- **Checkpoints**: `s7` writes a daily checkpoint (SQLite) so a run resumes after a crash. A mid-collection start without a checkpoint is refused by the runner, since peaks, windows and memory would be wrong.
 - **Logging**: per day and per question, write raw score, bar, flags, novelty and the reason a question was returned or dropped to `runs/<id>/trace.jsonl`.
 - **Seeds**: one `seed` in `[run]`, passed to anything random.
 - **Tests**: add `pytest` to a `dev` extra in `pyproject.toml`. Property tests for the metrics (briefing 6.3), unit tests from Appendix B for SPOT, Surprise, multiple testing and novelty weights.
 
 ## 5. Decisions (resolved 26 October 2026)
 
-- **Compute:** university GPU fleet available. Dense and language-model variants are realistic, so P10 is no longer last: pull the Stage 4 and Stage 7 model variants forward (sections 6 and 7). Still cache every model score and record every model with its cutoff.
-- **Focus:** Stages 4 (novelty) and 7 (new-question proposal) get the depth. Everything else stays at the simplest working option (P0 to P4) until these two have ablation tables. Revisit later.
+- **Compute:** university GPU fleet available. Dense and language-model variants are realistic, so P10 is no longer last: pull the Stage 4 and Stage 6 model variants forward (sections 7 and 8). Still cache every model score and record every model with its cutoff.
+- **Focus:** Stages 4 (novelty) and 6 (new-question proposal) get the depth. Everything else stays at the simplest working option (P0 to P4) until these two have ablation tables. Revisit later.
 - **Config format:** TOML.
 - **Scorer and test material (checked 26 October 2026):** none is public. The toolkit has no scoring code or judgments (latest commit 35d96b6, 31 July 2026; only the two dev topic files). The guidelines still say the scoring script is unreleased. The 15 October "scores released" date is a delivery to participants, not a public release, so briefing A.5 misread it. No participant papers exist yet; the workshop is 16 to 18 November. Consequences:
   - Proxy metrics (P2) stay the working evaluation. Even a scorer alone would not help on dev, because the dev labels are binary, undated and non-exhaustive, with no 1/5/10 gains and no question-level judgments per day. Importance ordering and silent-day behaviour need test judgments or silver labels.
@@ -199,11 +199,11 @@ Config keys in `[s4_novelty]`:
 
 Weighting and policy references: soft weight and floor are original design; hard filters hurt precision at depth in Li and Croft. Repeat credit in the track is unknown, so `weighting` ablations cover zero, half and full credit; context from Lin et al. 2016 (RTS: repeats scored zero), Hubert et al. 2017 and Buntain et al. 2023 (CrisisFACTS: redundant 0.5). Evaluation: the two dev measures in briefing Stage 4, plus TDT5 Cmin as a component benchmark only if the data is accessible.
 
-## 8. Stage 7 (propose): toggles and references
+## 8. Stage 6 (propose): toggles and references
 
-Stage 7 is the most contamination-exposed use of a model (question writing and the new, rephrase or update decision). For every model variant use either a pre-2021-08-01 model or label rows "may be contaminated" (briefing A.3). Candidate clean options from the references document: T5 and monoT5 (C4 from April 2019), ChronoGPT-Instruct or the HZ0619 2020-cutoff instruct model (the latter is unverified; check its card first).
+Stage 6 is the most contamination-exposed use of a model (question writing and the new, rephrase or update decision). For every model variant use either a pre-2021-08-01 model or label rows "may be contaminated" (briefing A.3). Candidate clean options from the references document: T5 and monoT5 (C4 from April 2019), ChronoGPT-Instruct or the HZ0619 2020-cutoff instruct model (the latter is unverified; check its card first).
 
-Config keys in `[s7_propose]`:
+Config keys in `[s6_propose]`:
 
 | Key | Options |
 | --- | --- |
@@ -241,8 +241,8 @@ Outcome handling follows the briefing table (new, rephrase, update, noise). Eval
 Do P0 to P4 first, then:
 
 1. P5-lite: only `topk` and `quantile` in Stage 3 (full Surprise and SPOT ladder can wait).
-2. P6: Stage 1 seeds and arrival-day handling (Stage 4 memory and Stage 7 seeds depend on it).
+2. P6: Stage 1 seeds and arrival-day handling (Stage 4 memory and Stage 6 seeds depend on it).
 3. P7: Stage 4, cheapest to richest (`exact_hash`, `nn_cosine`, `answer_pool`, `nli_judge`, `lm_judge`).
-4. P8-lite: Stage 0 exact-hash groups and boilerplate registry only (Stage 7 support counts need domains and groups).
-5. P9: Stage 7, in the order orphan test, clustering, `template` text, `embedding` check; then model variants.
+4. P8-lite: Stage 0 exact-hash groups and boilerplate registry only (Stage 6 support counts need domains and groups).
+5. P9: Stage 6, in the order orphan test, clustering, `template` text, `embedding` check; then model variants.
 6. Dense scorer and encoder in Stage 2 (needed for `nn_cosine` embeddings anyway); cache embeddings by fragment hash.
