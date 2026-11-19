@@ -8,6 +8,7 @@ from hashlib import sha1
 from pathlib import Path
 
 from hons.scripts.score import days_of, load_judgments
+from hons.stages.s2_rerank import load_scorer
 
 
 def load_topics(path: Path) -> dict[tuple[str, str], dict[str, str]]:
@@ -62,39 +63,6 @@ def save_cache(path: Path, cached: dict[str, float]) -> None:
     with tmp.open('wb') as f:
         pickle.dump(cached, f)
     os.replace(tmp, path)
-
-
-class MonoT5:
-    def __init__(self, name: str, device: str | None):
-        import torch
-        from transformers import AutoTokenizer, T5ForConditionalGeneration
-
-        self.torch = torch
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
-        self.tokenizer = AutoTokenizer.from_pretrained(name)
-        self.model = T5ForConditionalGeneration.from_pretrained(name).to(self.device).eval()
-        self.false_id, self.true_id = self.tokenizer.convert_tokens_to_ids(['▁false', '▁true'])
-
-    def predict(self, pairs: list[tuple[str, str]], batch_size: int = 32, show_progress_bar: bool = False) -> list[float]:
-        scores: list[float] = []
-        with self.torch.no_grad():
-            for start in range(0, len(pairs), batch_size):
-                part = pairs[start:start + batch_size]
-                encoded = self.tokenizer([f'Query: {query} Document: {passage} Relevant:' for query, passage in part],
-                                         padding=True, truncation=True, max_length=512, return_tensors='pt').to(self.device)
-                start_ids = self.torch.full((len(part), 1), self.model.config.decoder_start_token_id, dtype=self.torch.long, device=self.device)
-                logits = self.model(**encoded, decoder_input_ids=start_ids).logits[:, 0, :]
-                two = logits[:, [self.false_id, self.true_id]]
-                scores.extend(self.torch.log_softmax(two, dim=1)[:, 1].tolist())
-        return scores
-
-
-def load_scorer(name: str, device: str | None):
-    if 'monot5' in name.lower():
-        return MonoT5(name, device)
-    from sentence_transformers import CrossEncoder
-
-    return CrossEncoder(name, device=device)
 
 
 def rrf(ranks: list[int], k: int) -> float:
