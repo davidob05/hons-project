@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 DEFAULT_SCORER = Path('ignored/cdet-scorer-1.1.0/src')
-HEADLINE = ("recip_rank'", "ap'", "ndcg'", "rbp'(p=0.8)", 'abstention', 'noise')
+HEADLINE = ("recip_rank'", 'ap_plain', "ap'", "ndcg'", "rbp'(p=0.8)", 'abstention', 'noise')
 COUNTS = ('num_days', 'num_qs', 'num_ret', 'num_rel', 'num_rel_ret', 'unjudged')
 
 
@@ -57,6 +57,35 @@ def score(scorer_src: Path, qrels: Path, topics: Path, run: Path, min_rel_level:
         if len(parts) == 5:
             values[tuple(parts[:4])] = parts[4]
     return values
+
+
+def plain_ap(run: Path, judged: dict[tuple[str, str], set[str]], days: dict[str, str], max_depth: int) -> float | None:
+    relevant: dict[tuple[str, str, str], set[str]] = {}
+    for (tid, qid), docs in judged.items():
+        for doc_id in docs:
+            if doc_id in days:
+                relevant.setdefault((tid, qid, days[doc_id]), set()).add(doc_id)
+    rankings: dict[tuple[str, str, str], list[str]] = {}
+    with open(run) as f:
+        next(f)
+        for line in f:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            for day, questions in record['results'].items():
+                for question in questions:
+                    hits = sorted(question['doc_ranking'], key=lambda hit: hit['score'], reverse=True)
+                    rankings[(record['topic'], question['qid'], day)] = [hit['doc_id'] for hit in hits[:max_depth]]
+    values = []
+    for key, docs in relevant.items():
+        found = 0
+        total = 0.0
+        for rank, doc_id in enumerate(rankings.get(key, []), start=1):
+            if doc_id in docs:
+                found += 1
+                total += found / rank
+        values.append(total / len(docs))
+    return sum(values) / len(values) if values else None
 
 
 def number(text: str | None) -> float | None:
@@ -132,6 +161,7 @@ def main():
             qrels = Path(tmp) / f'qrels_{name}'
             write_qrels(judged, days, qrels, args.level)
             results[name] = summarise(score(args.scorer, qrels, args.judgments, run, args.min_rel_level, args.max_depth))
+            results[name]['overall']['ap_plain'] = plain_ap(run, judged, days, args.max_depth)
 
     print(f'official scorer, run {run}')
     print('prime measures are scored on question-days with a relevant document; abstention and noise on the other question-days of assessed days')

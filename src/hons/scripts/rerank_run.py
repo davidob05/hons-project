@@ -187,8 +187,7 @@ def main():
     labels = {'rep': 'replaced by', 'rrf': 'blended by reciprocal rank fusion with'}
     for suffix, verb in labels.items():
         for question, entries in jobs:
-            tail = question['doc_ranking'][args.depth:]
-            question['doc_ranking'] = reordered[suffix][id(question)] + tail
+            question['doc_ranking'] = reordered[suffix][id(question)]
         out_header = dict(header)
         out_header['runtag'] = args.tag + '_' + suffix
         out_header['description'] = f'{header["description"]} Top {args.depth} {verb} the cross-encoder {args.model} (may be contaminated) on days with judged documents.'
