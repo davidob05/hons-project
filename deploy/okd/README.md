@@ -39,6 +39,21 @@ git clone https://<GITHUB_TOKEN>@github.com/davidob05/hons-project.git /mnt/prim
 bash /mnt/primary/cdet/hons-project/deploy/okd/setup.sh && . /mnt/primary/cdet/env.sh
 ```
 
+## Running the hons pipeline (one line)
+
+From a fresh pod, this pulls the repo, installs anything missing and runs a config:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/davidob05/hons-project/main/deploy/okd/hons.sh | bash -s -- configs/toolkit_baseline.toml
+```
+
+The path after `--` is a config in the repo. Results go to `/mnt/primary/cdet/runs/<runtag>-<digest>/`
+and the console output to `/mnt/primary/cdet/runs/hons-<config>-<timestamp>.log`. A config with
+`mode = "live"` gets a local server started for it; `replay` needs none. For a long run:
+
+```bash
+nohup bash /mnt/primary/cdet/hons-project/deploy/okd/hons.sh configs/x.toml > $DATA/last.log 2>&1 &
+```
 ## Running things
 
 ```bash
@@ -80,6 +95,16 @@ mkdir -p ./runs
 oc rsync <pod-name>:/mnt/primary/cdet/runs/ ./runs/
 # fallback if the pod has no rsync:  oc cp <pod-name>:/mnt/primary/cdet/runs ./runs
 ```
+
+To copy only the hons pipeline outputs (`config.json`, `run.json` and `eval.json` from every
+`<runtag>-<digest>` folder, skipping the logs and the smoke-test runs):
+
+```bash
+mkdir -p ./runs && oc rsync <pod-name>:/mnt/primary/cdet/runs/ ./runs/ \
+  --include='*/' --include='config.json' --include='run.json' --include='eval.json' --exclude='*'
+```
+
+If the pod has no `rsync`, `oc cp` the whole folder instead (see the fallback above).
 
 ## Updating the code
 
