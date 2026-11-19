@@ -1,0 +1,37 @@
+[run]
+runtag = "frr_t5L_mad3"
+description = "Fused BM25 and all-MiniLM-L6-v2 (may be contaminated) over overlapping 300-word windows (75 overlap), top 20 reranked by monoT5-large (Hugging Face copy dated late 2021, may be contaminated) with the question prefixed by the topic label, ordered by the reranker score, Stage 3 MAD gate c = 3 on the monoT5 log-probability of true."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 300
+overlap = 75
+
+[s2_score]
+impl = "rerank"
+first = "fused"
+candidates = 20
+model = "castorini/monot5-large-msmarco"
+device = "cuda"
+batch_size = 16
+passage = "lead"
+words = 100
+template = "{label}: {question}"
+blend = "none"
+
+[s2_score.first_params]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+fusion = "zsum"
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 3.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"
