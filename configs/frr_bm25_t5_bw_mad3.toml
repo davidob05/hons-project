@@ -1,0 +1,30 @@
+[run]
+runtag = "frr_bm25_t5_bw_mad3"
+description = "Whole-document BM25 (Terrier, per-day statistics) picks the top 20 candidates, the all-MiniLM-L6-v2 encoder (may be contaminated) picks the best 300-word window of each candidate and monoT5-base (paper March 2020, Hugging Face copy dated late 2021, may be contaminated) reads its first 250 words, the question is prefixed by the topic label, ordered by the reranker score alone, Stage 3 MAD gate c = 3."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s2_score]
+impl = "rerank"
+first = "bm25_day"
+candidates = 20
+model = "castorini/monot5-base-msmarco"
+device = "cuda"
+batch_size = 16
+passage = "encoder"
+words = 250
+window_words = 300
+window_overlap = 75
+select_model = "sentence-transformers/all-MiniLM-L6-v2"
+template = "{label}: {question}"
+blend = "none"
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 3.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"

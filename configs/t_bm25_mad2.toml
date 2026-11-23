@@ -1,0 +1,22 @@
+[run]
+runtag = "t_bm25_mad2"
+description = "Whole-document BM25 (Terrier, per-day statistics) with the topic label prepended and the narrative appended to each question picks the top 20 and orders them by BM25 score, Stage 3 MAD gate c = 2. Official test topics."
+topics = "/mnt/primary/cdet/test-data/cd2026-test-topics.jsonl"
+mode = "replay"
+
+[s1_questions]
+impl = "template"
+template = "{label}: {question} {narrative}"
+
+[s2_score]
+impl = "bm25_day"
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 2.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"

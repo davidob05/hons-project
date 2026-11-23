@@ -1,0 +1,35 @@
+[run]
+runtag = "frr_t5_open"
+description = "Fused BM25 and all-MiniLM-L6-v2 (may be contaminated) over overlapping 300-word windows (75 overlap), top 20 reranked by monoT5-base (paper March 2020, Hugging Face copy dated late 2021, may be contaminated) reading the first 100 words with the question prefixed by the topic label, ordered by the log-probability of true, no gate, so that gates can be replayed on its scores."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 300
+overlap = 75
+
+[s2_score]
+impl = "rerank"
+first = "fused"
+candidates = 20
+model = "castorini/monot5-base-msmarco"
+device = "cuda"
+batch_size = 32
+passage = "lead"
+words = 100
+template = "{label}: {question}"
+blend = "none"
+
+[s2_score.first_params]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+fusion = "zsum"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1000.0
+
+[s5_gate]
+impl = "toolkit"

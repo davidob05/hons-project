@@ -1,0 +1,29 @@
+[run]
+runtag = "t_t5_open"
+description = "Whole-document BM25 (Terrier, per-day statistics) with the topic label prepended and the narrative appended to each question picks the top 20, monoT5-base (paper March 2020, Hugging Face copy dated late 2021, may be contaminated) reads the first 100 words of each with the question prefixed by the topic label and orders them by its score, no gate, all 20 returned with their scores. Official test topics."
+topics = "/mnt/primary/cdet/test-data/cd2026-test-topics.jsonl"
+mode = "replay"
+
+[s1_questions]
+impl = "template"
+template = "{label}: {question} {narrative}"
+
+[s2_score]
+impl = "rerank"
+first = "bm25_day"
+candidates = 20
+model = "castorini/monot5-base-msmarco"
+device = "cuda"
+batch_size = 32
+passage = "lead"
+words = 100
+template = "{label}: {question}"
+blend = "none"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1000.0
+
+[s5_gate]
+impl = "toolkit"

@@ -1,0 +1,25 @@
+[run]
+runtag = "frr_bm25_t5_open"
+description = "Whole-document BM25 (Terrier, per-day statistics) picks the top 20 candidates, monoT5-base (paper March 2020, Hugging Face copy dated late 2021, may be contaminated) reads the first 100 words of each candidate, the question is prefixed by the topic label, ordered by the reranker score alone, no gate, so that gates can be replayed on its scores."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s2_score]
+impl = "rerank"
+first = "bm25_day"
+candidates = 20
+model = "castorini/monot5-base-msmarco"
+device = "cuda"
+batch_size = 32
+passage = "lead"
+words = 100
+template = "{label}: {question}"
+blend = "none"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1000.0
+
+[s5_gate]
+impl = "toolkit"

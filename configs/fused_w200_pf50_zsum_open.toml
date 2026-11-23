@@ -1,0 +1,25 @@
+[run]
+runtag = "fz_w200_pf50_open"
+description = "Fused BM25 and all-MiniLM-L6-v2 (may be contaminated) with z-score fusion over overlapping 200-word windows (50 overlap), best window per document, only the union of each question's BM25 top 50 goes to the dense scorer. Top 20 returned, no gate, so that gates can be replayed on its scores."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 200
+overlap = 50
+
+[s2_score]
+impl = "fused"
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+fusion = "zsum"
+prefilter = 50
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = -1000.0
+
+[s5_gate]
+impl = "toolkit"

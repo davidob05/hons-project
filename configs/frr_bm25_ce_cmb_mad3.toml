@@ -1,0 +1,28 @@
+[run]
+runtag = "frr_bm25_ce_cmb_mad3"
+description = "Whole-document BM25 (Terrier, per-day statistics) picks the top 20 candidates, MiniLM-L12 (may be contaminated) reads the first 100 words of each candidate, the question is prefixed by the topic label, combined score: reranker score + 0.25 times the BM25 score, Stage 3 MAD gate c = 3."
+topics = "data/dev-topics.jsonl"
+mode = "replay"
+
+[s2_score]
+impl = "rerank"
+first = "bm25_day"
+candidates = 20
+model = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+device = "cuda"
+batch_size = 64
+passage = "lead"
+words = 100
+template = "{label}: {question}"
+blend = "sum"
+blend_weight = 0.25
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 3.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"

@@ -1,0 +1,31 @@
+[run]
+runtag = "t_ce_mad3"
+description = "Whole-document BM25 (Terrier, per-day statistics) with the topic label prepended and the narrative appended to each question picks the top 20, MiniLM-L12 cross-encoder (may be contaminated) reads the first 100 words of each with the question prefixed by the topic label and orders them by its score, Stage 3 MAD gate c = 3. Official test topics."
+topics = "/mnt/primary/cdet/test-data/cd2026-test-topics.jsonl"
+mode = "replay"
+
+[s1_questions]
+impl = "template"
+template = "{label}: {question} {narrative}"
+
+[s2_score]
+impl = "rerank"
+first = "bm25_day"
+candidates = 20
+model = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+device = "cuda"
+batch_size = 64
+passage = "lead"
+words = 100
+template = "{label}: {question}"
+blend = "none"
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 3.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"
