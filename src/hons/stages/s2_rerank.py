@@ -60,7 +60,9 @@ class CrossEncoderRerank:
                  model: str = 'cross-encoder/ms-marco-MiniLM-L-12-v2', device: str | None = None,
                  passage: str = 'lead', words: int = 100, batch_size: int = 64, probability: bool = False,
                  cache_dir: str | None = 'cache/rerank_scores', template: str | None = None,
-                 blend: str = 'none', blend_k: int = 60, blend_weight: float = 1.0):
+                 blend: str = 'none', blend_k: int = 60, blend_weight: float = 1.0, select_weight: float = 0.0,
+                 window_words: int = 300, window_overlap: int = 75,
+                 select_model: str = 'sentence-transformers/all-MiniLM-L6-v2', select_batch_size: int = 128):
         if candidates < 1:
             raise ValueError(f'candidates must be at least 1, got {candidates}')
         if blend not in ('none', 'rrf', 'sum'):
@@ -71,8 +73,10 @@ class CrossEncoderRerank:
             used = {name for _, name, _, _ in Formatter().parse(template) if name}
             if not used <= {'label', 'narrative', 'question'} or 'question' not in used:
                 raise ValueError(f'template must use {{question}} and may use only label, narrative and question, got {template!r}')
-        if passage not in ('lead', 'best'):
-            raise ValueError(f'passage must be "lead" or "best", got {passage!r}')
+        if passage not in ('lead', 'best', 'encoder'):
+            raise ValueError(f'passage must be "lead", "best" or "encoder", got {passage!r}')
+        if window_words < 1 or not 0 <= window_overlap < window_words:
+            raise ValueError(f'window_overlap must be at least 0 and below window_words, got {window_overlap} and {window_words}')
         if words < 1:
             raise ValueError(f'words must be at least 1, got {words}')
         first_stages = REGISTRY.get(STAGE, {})
@@ -90,8 +94,17 @@ class CrossEncoderRerank:
         self.blend = blend
         self.blend_k = blend_k
         self.blend_weight = blend_weight
+        self.select_weight = select_weight
         self.model = load_scorer(model, device)
         self.is_monot5 = isinstance(self.model, MonoT5)
+        self.window_words = window_words
+        self.window_overlap = window_overlap
+        self.select_batch_size = select_batch_size
+        self.selector = None
+        if passage == 'encoder':
+            from sentence_transformers import SentenceTransformer
+
+            self.selector = SentenceTransformer(select_model, device=device)
         self.cache_dir = Path(cache_dir) / model.replace('/', '__') if cache_dir else None
 
     def load_cache(self, digest: str) -> dict[str, float]:
@@ -117,11 +130,13 @@ class CrossEncoderRerank:
         if self.template is None:
             return version.text
         return self.template.format(label=version.label.replace('-', ' ').replace('_', ' '),
-                                    narrative=version.narrative, question=version.text)
+                                    narrative=version.narrative, question=version.original or version.text)
 
-    def blended(self, entries: list[tuple[str, int, str]], raw: dict[str, float], first: dict[str, DocScore]) -> dict[str, float]:
+    def blended(self, entries: list[tuple[str, int, str]], raw: dict[str, float], first: dict[str, DocScore],
+                similarity: dict[str, float]) -> dict[str, float]:
         if self.blend == 'sum':
-            return {doc_id: raw[doc_id] + self.blend_weight * first[doc_id].score for doc_id, _, _ in entries}
+            return {doc_id: raw[doc_id] + self.blend_weight * first[doc_id].score + self.select_weight * similarity.get(doc_id, 0.0)
+                    for doc_id, _, _ in entries}
         if self.blend == 'rrf':
             first_rank = {doc_id: rank for rank, (doc_id, _, _) in enumerate(entries, start=1)}
             ordered = sorted(raw, key=lambda doc_id: raw[doc_id], reverse=True)
@@ -132,6 +147,48 @@ class CrossEncoderRerank:
         if self.is_monot5:
             return {doc_id: math.exp(value) for doc_id, value in raw.items()}
         return {doc_id: 1 / (1 + math.exp(-value)) for doc_id, value in raw.items()}
+
+    def windows_of(self, text: str) -> list[str]:
+        words = text.split()
+        if len(words) <= self.window_words:
+            return [' '.join(words)] if words else []
+        stride = self.window_words - self.window_overlap
+        out = []
+        for start in range(0, len(words), stride):
+            out.append(' '.join(words[start:start + self.window_words]))
+            if start + self.window_words >= len(words):
+                break
+        return out
+
+    def select_passages(self, fragments: Fragments, questions: dict[QuestionKey, QuestionVersion],
+                        wanted: dict[QuestionKey, list[tuple[str, int, str]]]) -> dict[tuple[QuestionKey, str], tuple[str, float]]:
+        docs = sorted({doc_id for entries in wanted.values() for doc_id, _, _ in entries})
+        per_doc = {doc_id: self.windows_of(' '.join(fragments.fragments[doc_id][i].text for i in sorted(fragments.fragments[doc_id])))
+                   for doc_id in docs}
+        flat = [window for doc_id in docs for window in per_doc[doc_id]]
+        if not flat:
+            return {}
+        vectors = self.selector.encode(flat, batch_size=self.select_batch_size, normalize_embeddings=True,
+                                       convert_to_numpy=True, show_progress_bar=False)
+        spans = {}
+        position = 0
+        for doc_id in docs:
+            spans[doc_id] = (position, position + len(per_doc[doc_id]))
+            position += len(per_doc[doc_id])
+        texts = sorted({questions[key].text for key in wanted})
+        encoded = dict(zip(texts, self.selector.encode(texts, normalize_embeddings=True, convert_to_numpy=True,
+                                                       show_progress_bar=False)))
+        chosen: dict[tuple[QuestionKey, str], tuple[str, float]] = {}
+        for key, entries in wanted.items():
+            query = encoded[questions[key].text]
+            for doc_id, _, _ in entries:
+                start, end = spans[doc_id]
+                if end == start:
+                    continue
+                similarities = vectors[start:end] @ query
+                best = int(similarities.argmax())
+                chosen[(key, doc_id)] = (' '.join(per_doc[doc_id][best].split()[:self.words]), float(similarities[best]))
+        return chosen
 
     def text_of(self, fragments: Fragments, doc_id: str, best_fragment: int) -> str:
         by_index = fragments.fragments[doc_id]
@@ -155,9 +212,16 @@ class CrossEncoderRerank:
             wanted[key] = []
             for doc_id in ranked[:self.candidates]:
                 best = first.per_question[key][doc_id].best_fragment
-                text = self.text_of(fragments, doc_id, best)
-                if text:
+                text = '' if self.passage == 'encoder' else self.text_of(fragments, doc_id, best)
+                if text or self.passage == 'encoder':
                     wanted[key].append((doc_id, best, text))
+        if self.passage == 'encoder':
+            chosen = self.select_passages(fragments, questions, wanted)
+            wanted = {key: [(doc_id, best, chosen[(key, doc_id)][0]) for doc_id, best, _ in entries if (key, doc_id) in chosen]
+                      for key, entries in wanted.items()}
+            similarity = {key: {doc_id: chosen[(key, doc_id)][1] for doc_id, _, _ in entries} for key, entries in wanted.items()}
+        else:
+            similarity = {}
         if not any(wanted.values()):
             return scores
 
@@ -184,7 +248,7 @@ class CrossEncoderRerank:
 
         for key, entries in wanted.items():
             raw = {doc_id: cached[pair_key(queries[key], text)] for doc_id, _, text in entries}
-            final = self.blended(entries, raw, first.per_question[key])
+            final = self.blended(entries, raw, first.per_question[key], similarity.get(key, {}))
             per_doc = scores.per_question[key]
             for doc_id, best, _ in entries:
                 per_doc[doc_id] = DocScore(score=final[doc_id], best_fragment=best)

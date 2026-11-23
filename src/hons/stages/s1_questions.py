@@ -41,7 +41,7 @@ class TemplateQuestions(UnseededQuestions):
             fields = {'label': version.label.replace('-', ' ').replace('_', ' '),
                       'narrative': version.narrative, 'question': version.text}
             if all(fields[name] for name in self.used):
-                represented[key] = replace(version, text=self.template.format(**fields))
+                represented[key] = replace(version, text=self.template.format(**fields), original=version.original or version.text)
             else:
                 represented[key] = version
         return represented
