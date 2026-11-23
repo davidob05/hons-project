@@ -38,9 +38,51 @@ class MonoT5:
         return scores
 
 
+class QuestionAnswering:
+    def __init__(self, name: str, device: str | None, max_length: int = 384, max_answer_tokens: int = 30):
+        import torch
+        from transformers import AutoModelForQuestionAnswering, AutoTokenizer
+
+        self.torch = torch
+        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.tokenizer = AutoTokenizer.from_pretrained(name)
+        self.model = AutoModelForQuestionAnswering.from_pretrained(name).to(self.device).eval()
+        self.max_length = max_length
+        self.max_answer_tokens = max_answer_tokens
+
+    def predict(self, pairs: list[tuple[str, str]], batch_size: int = 32, show_progress_bar: bool = False) -> list[float]:
+        import numpy as np
+
+        scores: list[float] = []
+        with self.torch.no_grad():
+            for start in range(0, len(pairs), batch_size):
+                part = pairs[start:start + batch_size]
+                encoded = self.tokenizer([query for query, _ in part], [passage for _, passage in part],
+                                         truncation='only_second', max_length=self.max_length, padding=True, return_tensors='pt')
+                output = self.model(**{key: value.to(self.device) for key, value in encoded.items() if key != 'offset_mapping'})
+                starts = output.start_logits.float().cpu().numpy()
+                ends = output.end_logits.float().cpu().numpy()
+                for row in range(len(part)):
+                    context = [i for i, sequence in enumerate(encoded.sequence_ids(row)) if sequence == 1]
+                    if not context:
+                        scores.append(-100.0)
+                        continue
+                    s = starts[row][context]
+                    e = ends[row][context]
+                    grid = s[:, None] + e[None, :]
+                    width = len(context)
+                    allowed = np.triu(np.ones((width, width), dtype=bool)) & ~np.triu(np.ones((width, width), dtype=bool), k=self.max_answer_tokens)
+                    best = np.where(allowed, grid, -1e9).max()
+                    null = starts[row][0] + ends[row][0]
+                    scores.append(float(best - null))
+        return scores
+
+
 def load_scorer(name: str, device: str | None):
     if 'monot5' in name.lower():
         return MonoT5(name, device)
+    if 'squad' in name.lower() and 't5' not in name.lower():
+        return QuestionAnswering(name, device)
     from sentence_transformers import CrossEncoder
 
     return CrossEncoder(name, device=device)
