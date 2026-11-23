@@ -45,6 +45,31 @@ def lead_text(db: sqlite3.Connection, doc_id: str, words: int, memo: dict[str, s
     return memo[doc_id]
 
 
+def window_texts(db: sqlite3.Connection, doc_id: str, size: int, stride: int, memo: dict[str, list[str]]) -> list[str]:
+    if doc_id not in memo:
+        found = db.execute('select text from documents where id=?', (doc_id,)).fetchone()
+        words = found[0].split() if found and found[0] else []
+        if len(words) <= size:
+            memo[doc_id] = [' '.join(words)] if words else []
+        else:
+            out = []
+            for start in range(0, len(words), stride):
+                out.append(' '.join(words[start:start + size]))
+                if start + size >= len(words):
+                    break
+            memo[doc_id] = out
+    return memo[doc_id]
+
+
+def aggregate(scores: list[float], how: str) -> float:
+    if not scores:
+        return -100.0
+    ordered = sorted(scores, reverse=True)
+    if how == 'top2':
+        return sum(ordered[:2]) / len(ordered[:2])
+    return ordered[0]
+
+
 def pair_key(query: str, passage: str) -> str:
     return sha1(f'{query}\x00{passage}'.encode()).hexdigest()
 
@@ -59,7 +84,7 @@ def load_cache(path: Path) -> dict[str, float]:
 
 def save_cache(path: Path, cached: dict[str, float]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix('.tmp')
+    tmp = path.with_suffix(f'.{os.getpid()}.tmp')
     with tmp.open('wb') as f:
         pickle.dump(cached, f)
     os.replace(tmp, path)
@@ -74,7 +99,11 @@ def main():
     parser.add_argument('run', type=Path, help='a run folder or run.json')
     parser.add_argument('--model', default='cross-encoder/ms-marco-MiniLM-L-12-v2')
     parser.add_argument('--template', default='{label}: {question}')
-    parser.add_argument('--words', type=int, default=100)
+    parser.add_argument('--words', type=int, default=100, help='words of the lead passage when --passage is lead')
+    parser.add_argument('--passage', choices=['lead', 'windows'], default='lead', help='lead scores the first --words words; windows scores every window and aggregates')
+    parser.add_argument('--window-words', type=int, default=100)
+    parser.add_argument('--window-stride', type=int, default=50)
+    parser.add_argument('--aggregate', choices=['max', 'top2'], default='max', help='how the window scores of one document are combined')
     parser.add_argument('--depth', type=int, default=20, help='how many of the saved top documents to rerank')
     parser.add_argument('--blend-k', type=int, default=60)
     parser.add_argument('--batch-size', type=int, default=32)
@@ -105,6 +134,7 @@ def main():
 
     db = sqlite3.connect(str(args.db))
     memo: dict[str, str] = {}
+    window_memo: dict[str, list[str]] = {}
     jobs = []
     pairs: dict[str, tuple[str, str]] = {}
     for record in records:
@@ -117,10 +147,16 @@ def main():
                 query = args.template.format(**topics[key])
                 entries = []
                 for hit in question['doc_ranking'][:args.depth]:
-                    passage = lead_text(db, hit['doc_id'], args.words, memo)
-                    pk = pair_key(query, passage)
-                    pairs[pk] = (query, passage)
-                    entries.append((hit['doc_id'], pk))
+                    if args.passage == 'windows':
+                        passages = window_texts(db, hit['doc_id'], args.window_words, args.window_stride, window_memo)
+                    else:
+                        passages = [lead_text(db, hit['doc_id'], args.words, memo)]
+                    pks = []
+                    for passage in passages:
+                        pk = pair_key(query, passage)
+                        pairs[pk] = (query, passage)
+                        pks.append(pk)
+                    entries.append((hit['doc_id'], pks))
                 jobs.append((question, entries))
 
     cache_path = args.cache_dir / (args.model.replace('/', '__') + '.pkl')
@@ -139,13 +175,14 @@ def main():
             predicted = model.predict([pairs[pk] for pk in part], batch_size=args.batch_size, show_progress_bar=False)
             for pk, score in zip(part, predicted):
                 cached[pk] = float(score)
-            save_cache(cache_path, cached)
+            if (start // chunk) % 25 == 24 or start + chunk >= len(missing):
+                save_cache(cache_path, cached)
             print(f'scored {min(start + chunk, len(missing))}/{len(missing)}', flush=True)
 
     reordered = {'rep': {}, 'rrf': {}}
     for question, entries in jobs:
         fused_rank = {doc_id: rank for rank, (doc_id, _) in enumerate(entries, start=1)}
-        raw = {doc_id: cached[pk] for doc_id, pk in entries}
+        raw = {doc_id: aggregate([cached[pk] for pk in pks], args.aggregate) for doc_id, pks in entries}
         ce_order = sorted(raw, key=lambda doc_id: raw[doc_id], reverse=True)
         ce_rank = {doc_id: rank for rank, doc_id in enumerate(ce_order, start=1)}
         blended = {doc_id: rrf([ce_rank[doc_id], fused_rank[doc_id]], args.blend_k) for doc_id in raw}
@@ -165,7 +202,7 @@ def main():
             f.write(json.dumps(out_header) + '\n')
             for record in records:
                 f.write(json.dumps(record) + '\n')
-        (out_dir / 'config.json').write_text(json.dumps({**config, 'rerank': {'source_run': str(run_file), 'model': args.model, 'template': args.template, 'words': args.words, 'depth': args.depth, 'mode': suffix, 'blend_k': args.blend_k}}, indent=2))
+        (out_dir / 'config.json').write_text(json.dumps({**config, 'rerank': {'source_run': str(run_file), 'model': args.model, 'template': args.template, 'words': args.words, 'passage': args.passage, 'window_words': args.window_words, 'window_stride': args.window_stride, 'aggregate': args.aggregate, 'depth': args.depth, 'mode': suffix, 'blend_k': args.blend_k}}, indent=2))
         print(f'wrote {out_dir}')
 
 
