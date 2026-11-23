@@ -1,4 +1,6 @@
 import argparse
+import copy
+import glob
 import json
 import os
 import pickle
@@ -94,9 +96,9 @@ def rrf(ranks: list[int], k: int) -> float:
     return sum(1 / (k + rank) for rank in ranks)
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='Rerank the saved ranking of a finished run with a cross-encoder, writing a replace run and a blend run that score.py can evaluate')
-    parser.add_argument('run', type=Path, help='a run folder or run.json')
+    parser.add_argument('run', type=Path, nargs='?', help='a run folder or run.json (not needed with --config)')
     parser.add_argument('--model', default='cross-encoder/ms-marco-MiniLM-L-12-v2')
     parser.add_argument('--template', default='{label}: {question}')
     parser.add_argument('--words', type=int, default=100, help='words of the lead passage when --passage is lead')
@@ -108,7 +110,7 @@ def main():
     parser.add_argument('--blend-k', type=int, default=60)
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--device', default=None)
-    parser.add_argument('--tag', required=True, help='short name for the output runs; the run tags are <tag>_rep and <tag>_rrf and must stay within 20 characters')
+    parser.add_argument('--tag', help='short name for the output runs; the run tags are <tag>_rep and <tag>_rrf and must stay within 20 characters')
     parser.add_argument('--judgments', type=Path, nargs='*', default=[Path('data/dev-topics-all-docs.jsonl'), Path('data/silver-judgments.jsonl')],
                         help='the days carrying a judged document are the days reranked; every other day keeps its original ranking')
     parser.add_argument('--all-days', action='store_true', help='rerank every day in the run')
@@ -117,8 +119,13 @@ def main():
     parser.add_argument('--cache-dir', type=Path, default=Path('cache/rerank_offline'))
     parser.add_argument('--out-dir', type=Path, default=Path('runs'))
     parser.add_argument('--dry-run', action='store_true')
-    args = parser.parse_args()
+    parser.add_argument('--config', type=Path, help='a TOML file with a [run] table of shared settings and one [[cell]] table per run; the loaded model is reused across cells')
+    return parser
 
+
+def execute(args: argparse.Namespace, models: dict) -> None:
+    if args.run is None or args.tag is None:
+        sys.exit('a base run and a --tag are needed (or use --config)')
     for suffix in ('_rep', '_rrf'):
         if len(args.tag + suffix) > 20:
             sys.exit(f'run tag {args.tag + suffix!r} is longer than 20 characters')
@@ -167,7 +174,9 @@ def main():
         return
 
     if missing:
-        model = load_scorer(args.model, args.device)
+        if args.model not in models:
+            models[args.model] = load_scorer(args.model, args.device)
+        model = models[args.model]
         missing.sort(key=lambda pk: len(pairs[pk][1]))
         chunk = args.batch_size * 40
         for start in range(0, len(missing), chunk):
@@ -204,6 +213,32 @@ def main():
                 f.write(json.dumps(record) + '\n')
         (out_dir / 'config.json').write_text(json.dumps({**config, 'rerank': {'source_run': str(run_file), 'model': args.model, 'template': args.template, 'words': args.words, 'passage': args.passage, 'window_words': args.window_words, 'window_stride': args.window_stride, 'aggregate': args.aggregate, 'depth': args.depth, 'mode': suffix, 'blend_k': args.blend_k}}, indent=2))
         print(f'wrote {out_dir}')
+
+
+def main():
+    args = build_parser().parse_args()
+    models: dict = {}
+    if not args.config:
+        execute(args, models)
+        return
+    import tomllib
+
+    config = tomllib.loads(args.config.read_text())
+    shared = config.get('run', {})
+    for cell in config['cell']:
+        cell_args = copy.copy(args)
+        for key, value in {**shared, **cell}.items():
+            if key == 'base':
+                found = sorted(glob.glob(str(args.out_dir / f'{value}-*')), key=os.path.getmtime)
+                if not found:
+                    sys.exit(f'no run folder named {value}-* in {args.out_dir}')
+                cell_args.run = Path(found[-1])
+            elif key == 'judgments':
+                cell_args.judgments = [Path(item) for item in value]
+            else:
+                setattr(cell_args, key, value)
+        print(f'== {cell_args.tag}', flush=True)
+        execute(cell_args, models)
 
 
 if __name__ == '__main__':

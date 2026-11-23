@@ -1,0 +1,27 @@
+[run]
+base = "bm25_doc_both"
+model = "deepset/roberta-base-squad2"
+batch_size = 32
+depth = 20
+
+[[cell]]
+tag = "gx_qa_rb_q_ld"
+template = "{question}"
+passage = "lead"
+words = 100
+
+[[cell]]
+tag = "gx_qa_rb_q_w2"
+template = "{question}"
+passage = "windows"
+window_words = 200
+window_stride = 100
+aggregate = "max"
+
+[[cell]]
+tag = "gx_qa_rb_lq_w2"
+template = "{label}: {question}"
+passage = "windows"
+window_words = 200
+window_stride = 100
+aggregate = "max"

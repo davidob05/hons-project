@@ -1,0 +1,13 @@
+[run]
+base = "bm25_doc_both"
+model = "ahotrod/electra_large_discriminator_squad2_512"
+batch_size = 16
+depth = 20
+
+[[cell]]
+tag = "gx_qa_el_q_w2"
+template = "{question}"
+passage = "windows"
+window_words = 200
+window_stride = 100
+aggregate = "max"

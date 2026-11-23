@@ -1,0 +1,21 @@
+[run]
+base = "bm25_doc_both"
+model = "deepset/minilm-uncased-squad2"
+batch_size = 64
+depth = 20
+
+[[cell]]
+tag = "gx_qa_ml_q_w2"
+template = "{question}"
+passage = "windows"
+window_words = 200
+window_stride = 100
+aggregate = "max"
+
+[[cell]]
+tag = "gx_qa_ml_q_w1"
+template = "{question}"
+passage = "windows"
+window_words = 100
+window_stride = 50
+aggregate = "max"
