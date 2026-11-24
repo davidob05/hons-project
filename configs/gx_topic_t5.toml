@@ -1,0 +1,15 @@
+[run]
+model = "castorini/monot5-base-msmarco"
+shortlist = 10
+query = "label_narrative_questions"
+window_words = 200
+window_stride = 100
+batch_size = 32
+
+[[cell]]
+tag = "gx_tf10_t5_q"
+template = "{question}"
+
+[[cell]]
+tag = "gx_tf10_t5_lq"
+template = "{label}: {question}"
