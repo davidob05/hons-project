@@ -1,0 +1,14 @@
+[run]
+model = "castorini/monot5-base-msmarco"
+shortlist = 5
+query = "label_narrative_questions"
+days = "gate"
+loose_quantile = 0.6
+topics_only = ["cd2026_001"]
+window_words = 200
+window_stride = 100
+batch_size = 32
+
+[[cell]]
+tag = "gx_tg_001_q"
+template = "{question}"
