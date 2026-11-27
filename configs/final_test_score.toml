@@ -1,0 +1,8 @@
+[run]
+tag = "final_test"
+topics = "ignored/cd2026-test-topics.jsonl.jsonl"
+db = "docs.db"
+
+[score]
+mode = "qrels"
+qrels = "ignored/cd2026-qrels.txt"

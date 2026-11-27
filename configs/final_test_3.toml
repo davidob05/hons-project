@@ -1,0 +1,13 @@
+[run]
+tag = "final_test_3"
+scorer = "live"
+topics = "/mnt/primary/cdet/test-data/cd2026-test-topics.jsonl"
+topics_only = ["cd2026_003", "cd2026_007", "cd2026_019", "cd2026_025", "cd2026_034", "cd2026_039", "cd2026_045", "cd2026_050"]
+topic_quantile = 0.8
+question_quantile = 0.5
+loose_quantile = 0.6
+shortlist = 5
+depth = 3
+device = "cuda"
+batch_size = 64
+cache_dir = "cache/final_test_3"
