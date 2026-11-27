@@ -1,0 +1,20 @@
+[run]
+runtag = "test_bm25"
+description = "BM25 over each day's whole documents (Terrier, per-day statistics); the topic label is prepended and the narrative appended to each question. Top 20 returned. Official test topics, the 31 judged ones."
+topics = "/mnt/primary/cdet/test-data/cd2026-test-judged.jsonl"
+mode = "replay"
+
+[s1_questions]
+impl = "template"
+template = "{label}: {question} {narrative}"
+
+[s2_score]
+impl = "bm25_day"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = 0.0
+
+[s5_gate]
+impl = "toolkit"

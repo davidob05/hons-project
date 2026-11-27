@@ -40,6 +40,7 @@ DEFAULTS = {
     'loose_quantile': 0.6,
     'shortlist': 5,
     'depth': 3,
+    'order': 'fused',
     'question_quantile': 0.5,
     'question_window': 60,
     'question_warmup': 20,
@@ -146,66 +147,90 @@ def percentile(history, value: float, warmup: int) -> float | None:
     return sum(1 for x in history if x < value) / len(history)
 
 
-def run_system(config: dict, topics: dict[str, dict], db: sqlite3.Connection, days: list[str]) -> dict[str, dict[str, list[dict]]]:
+def read_variants(config: dict, tables: list[dict]) -> list[dict]:
+    base = {key: config[key] for key in ('topic_quantile', 'question_quantile', 'depth', 'order')}
+    variants = [{**base, **table} for table in tables] or [{**base, 'name': 'run', 'runtag': config['tag']}]
+    names = [v['name'] for v in variants]
+    if len(set(names)) != len(names):
+        sys.exit(f'variant names must be different: {names}')
+    for v in variants:
+        v.setdefault('runtag', v['name'])
+        if not RUNTAG.match(v['runtag']):
+            sys.exit(f'bad runtag {v["runtag"]!r}: at most 20 characters of letters, digits, period, hyphen, underscore, not starting with a period')
+        if v['order'] not in ('fused', 'bm25', 'model'):
+            sys.exit(f'variant {v["name"]}: order must be fused, bm25 or model')
+        if v['topic_quantile'] < config['loose_quantile']:
+            sys.exit(f'variant {v["name"]}: topic_quantile cannot be below loose_quantile {config["loose_quantile"]}')
+    return variants
+
+
+def run_system(config: dict, variants: list[dict], topics: dict[str, dict], db: sqlite3.Connection, days: list[str]) -> dict[str, dict[str, dict[str, list[dict]]]]:
     scorer = ReuseScorer(config['reuse'], sorted(topics)) if config['scorer'] == 'reuse' else LiveScorer(config, topics, db)
     labels = {tid: topic['label'].replace('-', ' ').replace('_', ' ') for tid, topic in topics.items()}
     topic_queries = {tid: topic_query(topic, 'label_narrative_questions') for tid, topic in topics.items()}
     topic_history = {tid: collections.deque(maxlen=config['topic_window']) for tid in topics}
     question_history = {(tid, q['qid']): collections.deque(maxlen=config['question_window']) for tid, topic in topics.items() for q in topic['questions']}
-    results: dict[str, dict[str, list[dict]]] = {tid: {} for tid in topics}
+    results: dict[str, dict[str, dict[str, list[dict]]]] = {v['name']: {tid: {} for tid in topics} for v in variants}
+    lowest = min(v['topic_quantile'] for v in variants)
     stats = collections.Counter()
     k = config['rrf_k']
     for number, day in enumerate(days):
         rows = db.execute('select id, text from documents where day=?', (day,)).fetchall()
         index = DayIndex(rows) if rows else None
-        active: dict[str, tuple[bool, list[str]]] = {}
+        active: dict[str, tuple[float, list[str]]] = {}
         for tid in topics:
             top = sorted(index.scores(topic_queries[tid]), key=lambda item: -item[0])[:config['shortlist']] if index else []
             best = top[0][0] if top else 0.0
             pct = percentile(topic_history[tid], best, config['topic_warmup'])
             topic_history[tid].append(best)
             if pct is not None and pct >= config['loose_quantile'] and top:
-                active[tid] = (pct > config['topic_quantile'], [doc for _, doc in top])
+                active[tid] = (pct, [doc for _, doc in top])
         requests = [(tid, doc, q['qid']) for tid, (_, docs) in active.items() for doc in docs for q in topics[tid]['questions']]
         gate_scores = scorer.score(day, requests, 'gate') if requests else {}
-        fired_requests = [(tid, doc, q['qid']) for tid, (fired, docs) in active.items() if fired for doc in docs for q in topics[tid]['questions']]
+        fired_requests = [(tid, doc, q['qid']) for tid, (topic_pct, docs) in active.items() if topic_pct > lowest for doc in docs for q in topics[tid]['questions']]
         order_scores = scorer.score(day, fired_requests, 'order') if fired_requests else {}
-        for tid in topics:
-            results[tid][day] = []
-        for tid, (fired, docs) in active.items():
+        for v in variants:
+            for tid in topics:
+                results[v['name']][tid][day] = []
+        for tid, (topic_pct, docs) in active.items():
             stats['loose topic-days'] += 1
-            entries = []
+            entries: dict[str, list] = {v['name']: [] for v in variants}
             for q in topics[tid]['questions']:
                 qid = q['qid']
                 best = max(gate_scores[(tid, doc, qid)] for doc in docs)
                 pct = percentile(question_history[(tid, qid)], best, config['question_warmup'])
                 question_history[(tid, qid)].append(best)
-                if not fired or pct is None or pct <= config['question_quantile']:
+                speaking = [v for v in variants if topic_pct > v['topic_quantile'] and (v['question_quantile'] < 0 or (pct is not None and pct > v['question_quantile']))]
+                if not speaking:
                     continue
                 own = dict((doc, value) for value, doc in index.scores(f"{labels[tid]}: {q['question']} {topics[tid]['narrative']}", docs))
                 by_bm25 = sorted(docs, key=lambda doc: -own.get(doc, -1e9))
                 by_model = sorted(docs, key=lambda doc: -order_scores[(tid, doc, qid)])
-                fused = {doc: 1 / (k + by_bm25.index(doc) + 1) + 1 / (k + by_model.index(doc) + 1) for doc in docs}
-                keep = sorted(docs, key=lambda doc: -fused[doc])[:config['depth']]
-                entries.append((best, qid, q['question'], [{'doc_id': doc, 'score': fused[doc]} for doc in keep]))
-            if fired:
+                orders = {'bm25': {doc: 1 / (k + i + 1) for i, doc in enumerate(by_bm25)},
+                          'model': {doc: 1 / (k + i + 1) for i, doc in enumerate(by_model)}}
+                orders['fused'] = {doc: orders['bm25'][doc] + orders['model'][doc] for doc in docs}
+                for v in speaking:
+                    scored = orders[v['order']]
+                    keep = sorted(docs, key=lambda doc: -scored[doc])[:v['depth']]
+                    entries[v['name']].append((best, qid, q['question'], [{'doc_id': doc, 'score': scored[doc]} for doc in keep]))
+            for v in variants:
+                chosen = sorted(entries[v['name']], key=lambda item: -item[0])
+                results[v['name']][tid][day] = [{'qid': qid, 'question_rank': rank, 'question_text': text, 'doc_ranking': hits, 'extra': None}
+                                                for rank, (_, qid, text, hits) in enumerate(chosen, 1)]
+            if topic_pct > variants[0]['topic_quantile']:
                 stats['fired topic-days'] += 1
-            entries.sort(key=lambda item: -item[0])
-            results[tid][day] = [{'qid': qid, 'question_rank': rank, 'question_text': text, 'doc_ranking': hits, 'extra': None}
-                                 for rank, (_, qid, text, hits) in enumerate(entries, 1)]
-            stats['question-days returned'] += len(entries)
+            stats['question-days returned'] += len(entries[variants[0]['name']])
         if (number + 1) % 20 == 0 or number + 1 == len(days):
             print(f'day {number + 1}/{len(days)} {day}: {dict(stats)}', flush=True)
     scorer.finish()
     return results
 
 
-def write_run(path: Path, config: dict, topics: dict[str, dict], results: dict[str, dict[str, list[dict]]]) -> None:
-    if not RUNTAG.match(config['tag']):
-        sys.exit(f'bad runtag {config["tag"]!r}: at most 20 characters of letters, digits, period, hyphen, underscore, not starting with a period')
+def write_run(path: Path, config: dict, variant: dict, topics: dict[str, dict], results: dict[str, dict[str, list[dict]]]) -> None:
+    settings = f'topic quantile {variant["topic_quantile"]}, question quantile {variant["question_quantile"]}, order {variant["order"]}, depth {variant["depth"]}.'
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, 'w') as f:
-        f.write(json.dumps({'runtag': config['tag'], 'description': config['description'], 'run_type': 'automatic',
+        f.write(json.dumps({'runtag': variant['runtag'], 'description': f'{config["description"]} Settings: {settings}', 'run_type': 'automatic',
                             'models': config['models'], 'extern': config['extern'], 'extra': None}) + '\n')
         for tid in sorted(topics):
             f.write(json.dumps({'topic': tid, 'results': results[tid], 'extra': None}) + '\n')
@@ -224,14 +249,14 @@ def cut_run(run: Path, depth: int) -> Path:
     return out
 
 
-def merge_runs(parts: list[Path], out: Path, tag: str) -> None:
+def merge_runs(parts: list[Path], out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     seen = set()
     with open(out, 'w') as f:
         for i, part in enumerate(parts):
             lines = open(part).read().splitlines()
             if i == 0:
-                f.write(json.dumps({**json.loads(lines[0]), 'runtag': tag}) + '\n')
+                f.write(lines[0] + '\n')
             for line in lines[1:]:
                 tid = json.loads(line)['topic']
                 if tid not in seen:
@@ -289,6 +314,18 @@ def evaluate(config: dict, run: Path, topics_file: Path, days: list[str]) -> Non
     (run.parent / f'{run.stem}_official.json').write_text(json.dumps(values, indent=2))
 
 
+def print_comparison(folder: Path) -> None:
+    columns = (('rbo', 'RBO'), ("recip_rank'", "RR'"), ("ap'", "AP'"), ("ndcg'", "NDCG'"), ("rbp'(p=0.8)", "RBP'"), ('abstention', 'abstain'), ('noise', 'noise'), ('num_ret', 'returned'), ('num_rel_ret', 'found'))
+    print(f'{"run":24}' + ''.join(f'{title:>10}' for _, title in columns))
+    for path in sorted(folder.glob('*_official.json')):
+        overall = json.loads(path.read_text())['overall']
+        cells = []
+        for name, _ in columns:
+            value = overall.get(name)
+            cells.append(f'{"-":>10}' if value is None else f'{value:10.0f}' if name.startswith('num_') else f'{value:10.3f}')
+        print(f'{path.name.removesuffix("_official.json"):24}' + ''.join(cells))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='Run the topic-first change detection system from a TOML config: write a track-format run file and score it with the official scorer')
     parser.add_argument('--config', type=Path)
@@ -296,11 +333,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--merge', type=Path, nargs='+', help='merge shard run files into --out and then score it')
     parser.add_argument('--out', type=Path)
     parser.add_argument('--depth', type=int, nargs='+', help='with --score-only or --merge, score the run cut to each of these depths instead of as stored')
+    parser.add_argument('--table', type=Path, help='print one comparison table of every scored run in this folder')
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
+    if args.table:
+        print_comparison(args.table)
+        return
     raw = tomllib.loads(args.config.read_text()) if args.config else {}
     config = {**DEFAULTS, **raw.get('run', {}), 'score': raw.get('score', {})}
     topics_file = Path(config['topics'])
@@ -312,7 +353,7 @@ def main() -> None:
         days = [d for d in days if d <= config['last_day']]
     if args.merge or args.score_only:
         if args.merge:
-            merge_runs(args.merge, args.out, config['tag'])
+            merge_runs(args.merge, args.out)
         run = args.out if args.merge else args.score_only
         for depth in args.depth or [None]:
             evaluate(config, cut_run(run, depth) if depth else run, topics_file, days)
@@ -323,13 +364,15 @@ def main() -> None:
             topic = json.loads(line)
             if not config['topics_only'] or topic['tid'] in config['topics_only']:
                 topics[topic['tid']] = topic
-    print(f'{config["tag"]}: {len(topics)} topics, {len(days)} days, scorer {config["scorer"]}, topic quantile {config["topic_quantile"]}, question quantile {config["question_quantile"]}, depth {config["depth"]}', flush=True)
-    results = run_system(config, topics, db, days)
-    run = Path(config['out_dir']) / config['tag'] / 'run.json'
-    write_run(run, config, topics, results)
-    print(f'wrote {run}', flush=True)
-    if not config['topics_only']:
-        evaluate(config, run, topics_file, days)
+    variants = read_variants(config, raw.get('variant', []))
+    print(f'{config["tag"]}: {len(topics)} topics, {len(days)} days, scorer {config["scorer"]}, variants {", ".join(v["name"] for v in variants)}', flush=True)
+    results = run_system(config, variants, topics, db, days)
+    for variant in variants:
+        run = Path(config['out_dir']) / config['tag'] / f'{variant["name"]}.json'
+        write_run(run, config, variant, topics, results[variant['name']])
+        print(f'wrote {run}', flush=True)
+        if not config['topics_only']:
+            evaluate(config, run, topics_file, days)
 
 
 if __name__ == '__main__':

@@ -3,11 +3,57 @@ tag = "final_test_2"
 scorer = "live"
 topics = "/mnt/primary/cdet/test-data/cd2026-test-topics.jsonl"
 topics_only = ["cd2026_002", "cd2026_006", "cd2026_016", "cd2026_024", "cd2026_032", "cd2026_038", "cd2026_044", "cd2026_049"]
-topic_quantile = 0.8
-question_quantile = 0.5
 loose_quantile = 0.6
 shortlist = 5
-depth = 3
 device = "cuda"
 batch_size = 64
 cache_dir = "cache/final_test_2"
+
+[[variant]]
+name = "primary"
+topic_quantile = 0.8
+question_quantile = 0.5
+order = "fused"
+depth = 3
+
+[[variant]]
+name = "topic90"
+topic_quantile = 0.9
+question_quantile = 0.5
+order = "fused"
+depth = 3
+
+[[variant]]
+name = "topic95"
+topic_quantile = 0.95
+question_quantile = 0.5
+order = "fused"
+depth = 3
+
+[[variant]]
+name = "no_qgate"
+topic_quantile = 0.8
+question_quantile = -1
+order = "fused"
+depth = 3
+
+[[variant]]
+name = "qgate70"
+topic_quantile = 0.8
+question_quantile = 0.7
+order = "fused"
+depth = 3
+
+[[variant]]
+name = "bm25_order"
+topic_quantile = 0.8
+question_quantile = 0.5
+order = "bm25"
+depth = 3
+
+[[variant]]
+name = "model_order"
+topic_quantile = 0.8
+question_quantile = 0.5
+order = "model"
+depth = 3

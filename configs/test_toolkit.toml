@@ -1,0 +1,16 @@
+[run]
+runtag = "test_toolkit"
+description = "BM25 over each day's documents with the question as query, top 20 returned. Official test topics, the 31 judged ones."
+topics = "/mnt/primary/cdet/test-data/cd2026-test-judged.jsonl"
+mode = "replay"
+
+[s2_score]
+impl = "bm25_day"
+
+[s3_tail]
+impl = "topk"
+k = 20
+min_score = 5
+
+[s5_gate]
+impl = "toolkit"

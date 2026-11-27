@@ -1,0 +1,36 @@
+[run]
+runtag = "test_ce_mad3"
+description = "Fused BM25 and all-MiniLM-L6-v2 (may be contaminated) over overlapping 300-word windows (75 overlap), top 20 reranked by cross-encoder MiniLM-L12 (may be contaminated) with the question prefixed by the topic label, ordered by the cross-encoder logit alone, Stage 3 MAD gate c = 3. Official test topics, the 31 judged ones."
+topics = "/mnt/primary/cdet/test-data/cd2026-test-judged.jsonl"
+mode = "replay"
+
+[s0_fragment]
+impl = "windows"
+size = 300
+overlap = 75
+
+[s2_score]
+impl = "rerank"
+first = "fused"
+candidates = 20
+model = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+device = "cuda"
+passage = "lead"
+words = 100
+template = "{label}: {question}"
+blend = "none"
+
+[s2_score.first_params]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "cuda"
+fusion = "zsum"
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 3.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"

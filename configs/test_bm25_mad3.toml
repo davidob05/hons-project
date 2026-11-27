@@ -1,0 +1,22 @@
+[run]
+runtag = "test_bm25_mad3"
+description = "BM25 over whole documents with the topic label prepended and the narrative appended to each question; Stage 3 MAD gate (c = 3, last 60 daily top scores, 30-day warm-up). Official test topics, the 31 judged ones."
+topics = "/mnt/primary/cdet/test-data/cd2026-test-judged.jsonl"
+mode = "replay"
+
+[s1_questions]
+impl = "template"
+template = "{label}: {question} {narrative}"
+
+[s2_score]
+impl = "bm25_day"
+
+[s3_tail]
+impl = "mad"
+k = 20
+c = 3.0
+window = 60
+warmup = 30
+
+[s5_gate]
+impl = "toolkit"
