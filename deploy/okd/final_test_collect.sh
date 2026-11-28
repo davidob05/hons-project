@@ -63,7 +63,7 @@ if [ "$shards" = 1 ]; then
     done
 fi
 
-for entry in 1:test_toolkit 1:test_bm25 2:test_bm25_mad3 3:test_ce_mad3 4:test_t5_mad3; do
+for entry in 1:test_toolkit 1:test_bm25 2:test_bm25_mad3; do
     n="${entry%%:*}"
     name="${entry#*:}"
     if [ ! -s "runs/final_test/$name.json" ]; then
@@ -81,6 +81,27 @@ for entry in 1:test_toolkit 1:test_bm25 2:test_bm25_mad3 3:test_ce_mad3 4:test_t
     fi
     score "runs/final_test/$name.json" --depth 20 3 1
 done
+
+RANKERS="bm25_top20 monot5_win minilm_win fused_win"
+ranked=1
+for n in 1 2 3 4; do
+    files=()
+    complete=1
+    for v in $RANKERS; do
+        files+=("final_rank_$n/$v.json")
+        [ -s "runs/final_rank_$n/$v.json" ] || complete=0
+    done
+    if [ "$complete" = 0 ] && ! fetch "$(pod_for "$n")" "${files[@]}"; then
+        ranked=0
+        skipped+=("windowed ranking shard $n")
+    fi
+done
+
+if [ "$ranked" = 1 ]; then
+    for v in $RANKERS; do
+        "$PYTHON" -m hons.scripts.topic_system --config configs/final_test_score.toml --merge runs/final_rank_{1,2,3,4}/"$v".json --out "runs/final_test/$v.json" --depth 20 3 1
+    done
+fi
 
 "$PYTHON" -m hons.scripts.topic_system --table runs/final_test | tee runs/final_test/comparison.txt
 

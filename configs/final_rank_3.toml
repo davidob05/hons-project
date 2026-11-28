@@ -1,0 +1,12 @@
+[run]
+tag = "final_rank_3"
+topics = "/mnt/primary/cdet/test-data/cd2026-test-topics.jsonl"
+judged_days = "/mnt/primary/cdet/test-data/cd2026-judged-days.txt"
+topics_only = ["cd2026_003", "cd2026_007", "cd2026_019", "cd2026_025", "cd2026_034", "cd2026_039", "cd2026_045", "cd2026_050"]
+candidates = 20
+window_words = 200
+window_stride = 100
+device = "cuda"
+batch_size = 64
+save_every = 200000
+cache_dir = "cache/final_rank_3"

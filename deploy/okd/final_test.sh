@@ -6,8 +6,8 @@ POD="${1:-}"
 case "$POD" in
     1) BASELINES="test_toolkit test_bm25" ;;
     2) BASELINES="test_bm25_mad3" ;;
-    3) BASELINES="test_ce_mad3" ;;
-    4) BASELINES="test_t5_mad3" ;;
+    3) BASELINES="" ;;
+    4) BASELINES="" ;;
     *) echo "usage: final_test.sh <1|2|3|4>"; exit 2 ;;
 esac
 

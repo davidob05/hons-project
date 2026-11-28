@@ -45,6 +45,7 @@ DEFAULTS = {
     'question_window': 60,
     'question_warmup': 20,
     'rrf_k': 60,
+    'save_every': 5000,
     'first_day': None,
     'last_day': None,
     'topics_only': None,
@@ -132,7 +133,7 @@ class LiveScorer:
             for key, value in zip(missing, predicted):
                 self.cache[key] = float(value)
             self.fresh += len(missing)
-            if self.fresh >= 5000:
+            if self.fresh >= self.config['save_every']:
                 save_cache(self.cache_path, self.cache)
                 self.fresh = 0
         return {key: aggregate([self.cache[k] for k in keys], 'max') for key, keys in wanted.items()}
